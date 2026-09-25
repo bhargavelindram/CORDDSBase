@@ -76,7 +76,7 @@
 <div><label>Detection camera</label><select id="aiCamera"><option value="">No camera selected</option></select></div>
 <div><label>Run detection</label><button id="toggleAi" disabled>AUTO DETECTION</button></div>
 </div>
-<p class="small">The first load downloads the model and may take a while. Vehicle tracking and accident reasoning run locally in the operator browser; camera frames are not uploaded for inference.</p>
+<p class="small">YOLO11 runs in the browser. Collision confirmation runs through the local Mac accident backend at 127.0.0.1:8000, which sends frames to the local Qwen3-VL-8B server at 127.0.0.1:30000. No cloud inference is required.</p>
 </div>
 </section>
 
@@ -86,7 +86,7 @@
 <div class="setting"><span>YOLO confidence threshold</span><b>20%</b></div>
 <div class="setting"><span>Recording segment length</span><b>2 minutes</b></div>
 <div class="setting"><span>Map</span><b>Leaflet + OpenStreetMap</b></div>
-<div class="setting"><span>Accident AI</span><div><b>CONFIGURED</b><div class="small">YOLO11x + BoT-SORT · per-frame Qwen review · Qwen3-VL-32B final judge</div></div></div><div class="setting"><span>Crash alert confidence</span><b>20%</b></div><div class="setting"><span>Build</span><b>CORDDSBase 2.0</b></div>
+<div class="setting"><span>Accident AI</span><div><b>CONFIGURED</b><div class="small">YOLO11x + BoT-SORT · per-frame Qwen review · Qwen3-VL-8B final judge · local Mac server</div></div></div><div class="setting"><span>Crash alert confidence</span><b>20%</b></div><div class="setting"><span>Build</span><b>CORDDSBase 2.0</b></div>
 </div>
 </section>
 </section>

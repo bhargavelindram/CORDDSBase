@@ -66,7 +66,6 @@ const ctx=canvas.getContext("2d");
 ctx.clearRect(0,0,w,h);
 ctx.lineWidth=Math.max(2,Math.round(w/500));
 ctx.font="700 "+Math.max(14,Math.round(w/65))+"px Arial";
-const cars=dets.filter(d=>d.label==="car");
 for(const d of dets){
 const x=d.box.xmin,y=d.box.ymin,bw=d.box.xmax-d.box.xmin,bh=d.box.ymax-d.box.ymin;
 ctx.strokeStyle="#ff0000";
@@ -78,12 +77,43 @@ ctx.fillRect(x,Math.max(0,y-th),tw,th);
 ctx.fillStyle="#ffffff";
 ctx.fillText(label,x+6,Math.max(17,y-6));
 }
+
+/*
+ * Collision detection is deliberately conservative. YOLO boxes can overlap
+ * when two toy cars are close in perspective or partially occluded, so box
+ * overlap alone is never treated as a crash.
+ *
+ * We require:
+ *  1. two car detections,
+ *  2. substantial physical-looking overlap/contact,
+ *  3. both cars actually moving,
+ *  4. the cars closing rapidly over several inference frames,
+ *  5. the overlap/contact is increasing.
+ *
+ * Stable left-to-right ordering prevents confidence/NMS reordering from
+ * constantly changing the pair history.
+ */
+const cars=dets.filter(d=>d.label==="car").sort((a,b)=>{
+const ac=(a.box.xmin+a.box.xmax)/2,bc=(b.box.xmin+b.box.xmax)/2;
+return ac-bc||a.box.ymax-b.box.ymax;
+});
 if(!c.collisionPairs)c.collisionPairs=new Map();
 const seenPairs=new Set();
+
 if(cars.length>=2){
 for(let i=0;i<cars.length;i++)for(let j=i+1;j<cars.length;j++){
 const a=cars[i].box,b=cars[j].box;
+const key=`${i}:${j}`;
+seenPairs.add(key);
+
+const acx=(a.xmin+a.xmax)/2,acy=(a.ymin+a.ymax)/2;
+const bcx=(b.xmin+b.xmax)/2,bcy=(b.ymin+b.ymax)/2;
+const apx=acx,apy=a.ymax,bpx=bcx,bpy=b.ymax;
+
+const centerDistance=Math.hypot(acx-bcx,acy-bcy)/Math.max(w,h);
+const contactDistance=Math.hypot(apx-bpx,apy-bpy)/Math.max(w,h);
 const overlap=iou(a,b);
+
 const aw=Math.max(1,a.xmax-a.xmin),bw=Math.max(1,b.xmax-b.xmin);
 const ah=Math.max(1,a.ymax-a.ymin),bh=Math.max(1,b.ymax-b.ymin);
 const smaller=Math.max(1,Math.min(aw*ah,bw*bh));
@@ -92,26 +122,32 @@ const x2=Math.min(a.xmax,b.xmax),y2=Math.min(a.ymax,b.ymax);
 const intersection=Math.max(0,x2-x1)*Math.max(0,y2-y1);
 const penetration=intersection/smaller;
 
-// For tabletop/toy-car footage, the bottom-center of each box is a much
-// better approximation of the car's physical contact point than box centers.
-const apx=(a.xmin+a.xmax)/2,apy=a.ymax;
-const bpx=(b.xmin+b.xmax)/2,bpy=b.ymax;
-const contactDistance=Math.hypot(apx-bpx,apy-bpy)/Math.max(w,h);
-const verticalGap=Math.max(0,Math.max(a.ymin,b.ymin)-Math.min(a.ymax,b.ymax))/Math.max(h,1);
-const pairKey=[i,j].join(":");
-seenPairs.add(pairKey);
-const previous=c.collisionPairs.get(pairKey);
-const closing=previous?contactDistance<previous.contactDistance-0.002:false;
+const prev=c.collisionPairs.get(key);
+const history=prev?.history||[];
+history.push({centerDistance,contactDistance,overlap,penetration,acx,acy,bcx,bcy});
+while(history.length>5)history.shift();
 
-// A collision needs meaningful box penetration PLUS very close physical
-// contact points and closing motion for several consecutive detections.
-// This prevents perspective overlap from being treated as a collision.
-const contact=overlap>0.02&&penetration>0.10&&contactDistance<0.075&&closing;
-let streak=previous?.streak||0;
-streak=contact?streak+1:0;
-c.collisionPairs.set(pairKey,{contactDistance,streak});
-if(streak>=3){
-reportCollision(c,pairKey,Math.max(cars[i].score,cars[j].score));
+let motionA=0,motionB=0,closing=0,overlapGrowth=0;
+if(history.length>=3){
+const old=history[history.length-3];
+motionA=Math.hypot(acx-old.acx,acy-old.acy)/Math.max(w,h);
+motionB=Math.hypot(bcx-old.bcx,bcy-old.bcy)/Math.max(w,h);
+closing=old.centerDistance-centerDistance;
+overlapGrowth=overlap-old.overlap;
+}
+
+const moving=motionA>0.008&&motionB>0.008;
+const closeEnough=contactDistance<0.060&&centerDistance<0.160;
+const touching=overlap>0.05&&penetration>0.15;
+const closingFast=closing>0.012;
+const impactGrowth=overlapGrowth>0.025||(penetration-(prev?.penetration||0))>0.06;
+const contact=closeEnough&&touching&&moving&&closingFast&&impactGrowth;
+
+const streak=contact?(prev?.streak||0)+1:0;
+c.collisionPairs.set(key,{history,streak,contactDistance,centerDistance,overlap,penetration});
+
+if(streak>=2){
+reportCollision(c,key,Math.max(cars[i].score,cars[j].score));
 ctx.strokeStyle="#ffffff";
 ctx.lineWidth=Math.max(4,Math.round(w/250));
 const x=Math.min(a.xmin,b.xmin),y=Math.min(a.ymin,b.ymin),x3=Math.max(a.xmax,b.xmax),y3=Math.max(a.ymax,b.ymax);
@@ -119,6 +155,7 @@ ctx.strokeRect(x,y,x3-x,y3-y);
 }
 }
 }
+
 for(const key of c.collisionPairs.keys())if(!seenPairs.has(key))c.collisionPairs.delete(key);
 }
 function decodeYOLO(output,meta){const data=output.data,dims=output.dims,channels=dims[1],count=dims[2],transposed=channels!==84,attrs=transposed?count:channels,n=transposed?channels:count;const get=(a,c)=>transposed?data[c*attrs+a]:data[a*n+c];const dets=[];for(let c=0;c<n;c++){let score=0,cls=-1;for(let a=4;a<attrs;a++){const v=get(a,c);if(v>score){score=v;cls=a-4}}if(score<YOLO_THRESHOLD||cls!==2)continue;const cx=get(0,c),cy=get(1,c),bw=get(2,c),bh=get(3,c);const box={xmin:Math.max(0,Math.min(meta.vw,(cx-bw/2-meta.dx)/meta.scale)),ymin:Math.max(0,Math.min(meta.vh,(cy-bh/2-meta.dy)/meta.scale)),xmax:Math.max(0,Math.min(meta.vw,(cx+bw/2-meta.dx)/meta.scale)),ymax:Math.max(0,Math.min(meta.vh,(cy+bh/2-meta.dy)/meta.scale))};if(box.xmax>box.xmin&&box.ymax>box.ymin)dets.push({score,label:COCO[cls]||("class "+cls),box})}return nms(dets)}

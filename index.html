@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>CORDDSBASE</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-<link rel="stylesheet" href="styles.css?v=20260925-1215">
+<link rel="stylesheet" href="styles.css?v=20260925-1220">
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.22.3/dist/livekit-client.umd.min.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 </head>
 <body>
 <header><b>CORDDSBASE</b><span id="status">OFFLINE</span></header>
 
-<main id="gate">
+<main id="gate" hidden>
 <section class="card">
 <h1>CORDDSBASE</h1>
 <p>Security camera command interface</p>
@@ -21,7 +21,7 @@
 </section>
 </main>
 
-<main id="app" hidden>
+<main id="app">
 <aside>
 <h2>CORDDSBASE</h2>
 <button class="nav active" data-view="cameras">Cameras <span id="cameraCount">0</span></button>
@@ -38,7 +38,7 @@
 
 <section id="view-cameras" class="view">
 <div id="operatorPanel" class="panel">
-<div class="row"><input id="room" placeholder="Room ID (e.g. cb-12345)"><button id="createRoom">CREATE / JOIN ROOM</button></div>
+<div class="row"><input id="room" value="Bum" placeholder="Room ID (e.g. cb-12345)"><button id="createRoom">CREATE / JOIN ROOM</button></div>
 <div class="small">Share this room ID with camera devices. Each connected phone becomes a separate camera.</div>
 <div id="remoteArea" class="cameraGrid"></div>
 </div>
@@ -109,6 +109,18 @@
   document.getElementById("cameraBtn").addEventListener("click",function(){openMode("camera")});
 })();
 </script>
-<script src="app.js?v=20260925-1215"></script>
+<script src="app.js?v=20260925-1220"></script>
+<script>
+window.addEventListener("load",function(){
+  setTimeout(function(){
+    var room=document.getElementById("room");
+    var saved="";
+    try{saved=localStorage.getItem("cordds_room")||""}catch(e){}
+    if(room)room.value=saved||room.value||"Bum";
+    var btn=document.getElementById("createRoom");
+    if(btn)btn.click();
+  },150);
+});
+</script>
 </body>
 </html>

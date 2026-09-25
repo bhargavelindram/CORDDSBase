@@ -84,29 +84,33 @@ if(cars.length>=2){
 for(let i=0;i<cars.length;i++)for(let j=i+1;j<cars.length;j++){
 const a=cars[i].box,b=cars[j].box;
 const overlap=iou(a,b);
-const smaller=Math.max(1,Math.min(
-Math.max(1,(a.xmax-a.xmin)*(a.ymax-a.ymin)),
-Math.max(1,(b.xmax-b.xmin)*(b.ymax-b.ymin))
-));
+const aw=Math.max(1,a.xmax-a.xmin),bw=Math.max(1,b.xmax-b.xmin);
+const ah=Math.max(1,a.ymax-a.ymin),bh=Math.max(1,b.ymax-b.ymin);
+const smaller=Math.max(1,Math.min(aw*ah,bw*bh));
 const x1=Math.max(a.xmin,b.xmin),y1=Math.max(a.ymin,b.ymin);
 const x2=Math.min(a.xmax,b.xmax),y2=Math.min(a.ymax,b.ymax);
 const intersection=Math.max(0,x2-x1)*Math.max(0,y2-y1);
 const penetration=intersection/smaller;
-const acx=(a.xmin+a.xmax)/2,acy=(a.ymin+a.ymax)/2;
-const bcx=(b.xmin+b.xmax)/2,bcy=(b.ymin+b.ymax)/2;
-const distance=Math.hypot(acx-bcx,acy-bcy)/Math.max(w,h);
+
+// For tabletop/toy-car footage, the bottom-center of each box is a much
+// better approximation of the car's physical contact point than box centers.
+const apx=(a.xmin+a.xmax)/2,apy=a.ymax;
+const bpx=(b.xmin+b.xmax)/2,bpy=b.ymax;
+const contactDistance=Math.hypot(apx-bpx,apy-bpy)/Math.max(w,h);
+const verticalGap=Math.max(0,Math.max(a.ymin,b.ymin)-Math.min(a.ymax,b.ymax))/Math.max(h,1);
 const pairKey=[i,j].join(":");
 seenPairs.add(pairKey);
 const previous=c.collisionPairs.get(pairKey);
-const closing=previous?distance<previous.distance-0.004:false;
+const closing=previous?contactDistance<previous.contactDistance-0.002:false;
 
-// A collision requires real box penetration, not merely nearby centers.
-// It must also be moving together across frames and persist for 2 detections.
-const contact=overlap>0.01&&penetration>0.22&&closing;
+// A collision needs meaningful box penetration PLUS very close physical
+// contact points and closing motion for several consecutive detections.
+// This prevents perspective overlap from being treated as a collision.
+const contact=overlap>0.02&&penetration>0.10&&contactDistance<0.075&&closing;
 let streak=previous?.streak||0;
 streak=contact?streak+1:0;
-c.collisionPairs.set(pairKey,{distance,streak});
-if(streak>=2){
+c.collisionPairs.set(pairKey,{contactDistance,streak});
+if(streak>=3){
 reportCollision(c,pairKey,Math.max(cars[i].score,cars[j].score));
 ctx.strokeStyle="#ffffff";
 ctx.lineWidth=Math.max(4,Math.round(w/250));

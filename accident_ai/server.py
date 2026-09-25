@@ -20,6 +20,7 @@ app.add_middleware(
 async def add_local_network_access_header(request, call_next):
     response = await call_next(request)
     response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
 
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")

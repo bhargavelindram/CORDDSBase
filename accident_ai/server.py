@@ -21,6 +21,7 @@ VLM_ENABLED=os.getenv("VLM_ENABLED","true").lower()=="true"
 VLM_MIN_CONFIDENCE=float(os.getenv("VLM_MIN_CONFIDENCE","0.10"))
 vlm_busy:Dict[str,bool]=defaultdict(bool)
 vlm_last:Dict[str,dict]={}
+frame_counts:Dict[str,int]=defaultdict(int)
 model=YOLO(MODEL_PATH)
 history:Dict[str,deque]=defaultdict(lambda:deque(maxlen=WINDOW_FRAMES))
 last_alert:Dict[str,float]={}
@@ -159,11 +160,16 @@ def frame(f:Frame):
         flow=cv2.calcOpticalFlowFarneback(previous,gray,None,0.5,2,15,2,5,1.2,0)
         flow_value=float(np.percentile(cv2.magnitude(flow[...,0],flow[...,1]),90))
     cam.append({"t":f.timestamp,"tracks":tracks,"motion":motion,"flow":flow_value,"gray":gray,"jpeg":frame_jpeg})
+    frame_counts[f.camera_id]+=1
     vlm_result=None
-    if len(cam)>=WINDOW_FRAMES and len(cam)%WINDOW_FRAMES==0:
-        vlm_result=run_vlm_window(f.camera_id,list(cam))
+    if frame_counts[f.camera_id] % WINDOW_FRAMES == 0:
+        import threading
+        items=list(cam)
+        if not vlm_busy[f.camera_id]:
+            threading.Thread(target=run_vlm_window,args=(f.camera_id,items),daemon=True).start()
+            vlm_result={"started":True}
     latest=vlm_last.get(f.camera_id,{"accident":False,"confidence":0.0,"reason":"waiting for 48-frame AI review","model":VLM_MODEL,"frames":len(cam)})
     now=time.time()
     accident=bool(latest.get("accident")) and now-last_alert.get(f.camera_id,0)>ALERT_COOLDOWN
     if accident:last_alert[f.camera_id]=now
-    return {"accident":accident,"confidence":float(latest.get("confidence",0)),"reason":latest.get("reason",""),"pair":None,"tracks":tracks,"window_frames":len(cam),"window_seconds":round(len(cam)/INPUT_FPS,2),"touch_tolerance_px":TOUCH_PX,"vlm":latest,"vlm_reviewed":vlm_result is not None}
+    return {"accident":accident,"confidence":float(latest.get("confidence",0)),"reason":latest.get("reason",""),"pair":None,"tracks":tracks,"window_frames":len(cam),"window_seconds":round(len(cam)/INPUT_FPS,2),"frames_received":frame_counts[f.camera_id],"touch_tolerance_px":TOUCH_PX,"vlm":latest,"vlm_reviewed":vlm_result is not None}

@@ -42,25 +42,62 @@ def spike(values):
     med=float(np.median(base));mad=float(np.median(np.abs(base-med)))+1e-5
     return max(0.0,min(1.0,float((values[-1]-med)/(6.0*1.4826*mad))))
 
+def anchor(box):
+    x1,y1,x2,y2=box
+    return ((x1+x2)*0.5,y2)
+
+def anchor_distance(a,b):
+    ax,ay=anchor(a); bx,by=anchor(b)
+    return float(((ax-bx)**2+(ay-by)**2)**0.5)
+
 def score_window(cam):
     items=list(cam)
     if len(items)<12:return 0.0,"warming up",None
+
     motion_spike=spike([x["motion"] for x in items])
     flow_spike=spike([x["flow"] for x in items])
-    pair_best=0.0;pair_name=None;pairs={}
+
+    # Bounding-box overlap is deliberately NOT treated as physical contact.
+    # Perspective can make two separate cars overlap in image space.
+    # Instead, use bottom-center ground-contact proxies plus closing motion.
+    pair_best=0.0;pair_name=None
+    pair_details={}
+
     for item in items[-20:]:
         cars=[t for t in item["tracks"] if t["class"]==2]
         for i,a in enumerate(cars):
             for b in cars[i+1:]:
                 key=tuple(sorted((a["id"],b["id"])))
-                size=max(1.0,min(a["box"][2]-a["box"][0],a["box"][3]-a["box"][1],b["box"][2]-b["box"][0],b["box"][3]-b["box"][1]))
-                contact=max(overlap(a["box"],b["box"]),max(0.0,1.0-gap(a["box"],b["box"])/(0.10*size)))
-                pairs[key]=max(pairs.get(key,0.0),contact)
-    if pairs:
-        key,pair_best=max(pairs.items(),key=lambda kv:kv[1]);pair_name=f"CAR #{key[0]} + CAR #{key[1]}"
-    confidence=min(0.99,0.48*motion_spike+0.32*flow_spike+0.20*pair_best)
+                scale=max(1.0,min(
+                    a["box"][2]-a["box"][0], a["box"][3]-a["box"][1],
+                    b["box"][2]-b["box"][0], b["box"][3]-b["box"][1]
+                ))
+                d=anchor_distance(a["box"],b["box"])
+                proximity=max(0.0,min(1.0,1.0-d/(0.42*scale)))
+                detail=pair_details.setdefault(key,{"latest":d,"prev":None,"min_proximity":0.0,"closing":0.0})
+                if detail["prev"] is not None:
+                    closing=max(0.0,(detail["prev"]-d)/(0.16*scale))
+                    detail["closing"]=max(detail["closing"],min(1.0,closing))
+                detail["prev"]=d
+                detail["latest"]=d
+                detail["min_proximity"]=max(detail["min_proximity"],proximity)
+
+    for key,detail in pair_details.items():
+        # Require BOTH close ground-contact points and meaningful closing motion.
+        # A stationary projected overlap therefore cannot trigger a crash.
+        event=min(detail["min_proximity"],detail["closing"])
+        if event>pair_best:
+            pair_best=event
+            pair_name=f"CAR #{key[0]} + CAR #{key[1]}"
+
+    confidence=min(0.99,0.35*motion_spike+0.25*flow_spike+0.40*pair_best)
     reason=f"5-second/40-frame window; motion spike {motion_spike:.2f}; optical-flow spike {flow_spike:.2f}"
-    if pair_name:reason+=f"; strongest pair {pair_name} contact {pair_best:.2f}"
+    if pair_name:
+        d=pair_details[tuple(sorted(map(int,pair_name.replace("CAR #","").replace(" + CAR #"," ").split())))]
+        reason+=f"; ground-contact pair {pair_name} proximity {d['min_proximity']:.2f}; closing {d['closing']:.2f}"
+    else:
+        reason+="; no physical-contact motion pattern"
+
     return confidence,reason,pair_name
 
 @app.get("/health")

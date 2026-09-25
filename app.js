@@ -4,6 +4,7 @@ const DEFAULT_TOKEN="corddsbase-vzgr9t";
 const SEGMENT_MS=120000;
 const S={room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),collisions:new Map(),removedCameras:new Set(),ai:{running:false,cameras:new Map(),timers:new Map(),busy:new Map(),frames:new Map(),agentOnline:false},map:null,watchId:null,db:null,audioCtx:null,accidentApi:"http://127.0.0.1:8000",face:{detector:null,loading:false}};
 function localAgentFetch(url,options={}){const opts={...options};if("targetAddressSpace" in Request.prototype)opts.targetAddressSpace="loopback";return fetch(url,opts)}
+async function loopbackPermission(){try{if(navigator.permissions?.query){const p=await navigator.permissions.query({name:"loopback-network"});return p.state}}catch(e){}return "unknown"}
 const COCO=["person","bicycle","car","motorcycle","airplane","bus","train","truck","boat","traffic light","fire hydrant","stop sign","parking meter","bench","bird","cat","dog","horse","sheep","cow","elephant","bear","zebra","giraffe","backpack","umbrella","handbag","tie","suitcase","frisbee","skis","snowboard","sports ball","kite","baseball bat","baseball glove","skateboard","surfboard","tennis racket","bottle","wine glass","cup","fork","knife","spoon","bowl","banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake","chair","couch","potted plant","bed","dining table","toilet","tv","laptop","mouse","remote","keyboard","cell phone","microwave","oven","toaster","sink","refrigerator","book","clock","vase","scissors","teddy bear","hair drier","toothbrush"];
 function setStatus(t){$("status").textContent=t}function setVisionBadge(t,mode=""){const b=$("visionAgentBadge");if(b){b.textContent=t;b.className=mode}}
 function identity(p){return p+"-"+Math.random().toString(36).slice(2,10)}
@@ -95,6 +96,8 @@ el.querySelectorAll("[data-clear]").forEach(b=>b.onclick=()=>clearCollision(b.da
 function renderAlerts(){renderCollisionControl();const el=$("alertsList");if(!S.alerts.length){el.className="list empty";el.textContent="No detection alerts yet.";return}el.className="list";el.innerHTML=S.alerts.map(a=>'<div class="alertItem"><div><strong>'+escapeHtml(a.label)+'</strong><div class="small">'+escapeHtml(a.camera)+' · '+Math.round(a.score*100)+'% confidence</div></div><span class="small">'+new Date(a.time).toLocaleTimeString()+'</span></div>').join("")}
 async function checkVisionAgent(){
 try{
+const permission=await loopbackPermission();
+if(permission==="denied"){S.ai.agentOnline=false;setVisionBadge("VISION AGENT: BLOCKED","");$("aiStatus").textContent="VISION AGENT BLOCKED · Chrome Apps on device permission is denied for this site";$("aiStatus").className="aiStatus error";$("toggleAi").disabled=true;return false}
 const r=await localAgentFetch(S.accidentApi+"/health",{cache:"no-store"});
 const h=await r.json();
 S.ai.agentOnline=!!h.ok;
@@ -106,7 +109,7 @@ return h.ok;
 }catch(e){
 S.ai.agentOnline=false;
 setVisionBadge("VISION AGENT: OFFLINE","");
-$("aiStatus").textContent="VISION AGENT OFFLINE · "+(e.message||"server unavailable");
+$("aiStatus").textContent="VISION AGENT OFFLINE · "+(e.message||"server unavailable")+" · allow Apps on device for this site";
 $("aiStatus").className="aiStatus error";
 $("toggleAi").disabled=true;
 return false;
@@ -123,7 +126,7 @@ if(!S.ai.running||!c||!c.video||c.video.readyState<2||S.ai.busy.get(id))return;
 S.ai.busy.set(id,true);
 try{
 const jpeg=captureAgentFrame(c.video);
-const r=await fetch(S.accidentApi+"/frame",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({camera_id:id,timestamp:Date.now()/1000,jpeg_base64:jpeg})});
+const r=await localAgentFetch(S.accidentApi+"/frame",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({camera_id:id,timestamp:Date.now()/1000,jpeg_base64:jpeg})});
 const data=await r.json();
 if(!r.ok)throw new Error(data.detail||"vision agent request failed");
 c.accidentStatus&&(c.accidentStatus.textContent=data.collision_visible?"ACCIDENT AI: COLLISION VISIBLE":"ACCIDENT AI: MONITORING");

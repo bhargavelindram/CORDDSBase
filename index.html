@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>CORDDSBASE</title><link rel="stylesheet" href="styles.css"><script src="https://cdn.jsdelivr.net/npm/livekit-client@2.15.6/dist/livekit-client.umd.min.js"></script></head>
+<body><header><b>CORDDSBASE</b><span id="status">OFFLINE</span></header>
+<main id="gate"><section class="card"><h1>CORDDSBASE</h1><p>Security camera command interface</p><div class="actions"><button id="operatorBtn">OPERATOR</button><button id="cameraBtn">CAMERA</button></div><label>LiveKit Development Token Server ID<input id="tokenId" placeholder="Paste Token Server ID"></label><button id="saveToken">SAVE</button><p id="gateMsg"></p></section></main>
+<main id="app" hidden><aside><h2>CORDDSBASE</h2><button class="nav active">Cameras</button><button class="nav">Live Map</button><button class="nav">Alerts</button><button class="nav">Video Storage</button><button class="nav">Settings</button><button id="leave" class="danger">LOG OUT</button></aside><section class="content"><div class="top"><h1 id="title">Cameras</h1><span id="roomState">NO ROOM</span></div>
+<div id="operatorPanel" class="panel"><div class="row"><input id="room" placeholder="Room ID (e.g. cb-12345)"><button id="createRoom">CREATE ROOM</button></div><div id="remoteArea" class="cameraGrid"></div></div>
+<div id="cameraPanel" class="panel" hidden><div class="row"><input id="cameraRoom" placeholder="Enter operator room ID"><button id="startCamera">ENABLE CAMERA</button></div><video id="localVideo" autoplay muted playsinline></video><p id="cameraMsg">Camera is off.</p></div>
+</section></main><script src="app.js"></script></body></html>

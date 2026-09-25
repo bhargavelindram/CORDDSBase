@@ -12,13 +12,13 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False,
 
 MODEL_PATH=os.getenv("YOLO_MODEL","yolo11x.pt")
 FRAME_SIZE=int(os.getenv("YOLO_SIZE","640"))
-WINDOW_FRAMES=48
-INPUT_FPS=15
-ALERT_COOLDOWN=6.0
+WINDOW_FRAMES=1
+INPUT_FPS=30
+ALERT_COOLDOWN=0.0
 VLM_URL=os.getenv("VLM_URL","http://127.0.0.1:30000/v1/chat/completions")
 VLM_MODEL=os.getenv("VLM_MODEL","Qwen/Qwen3-VL-32B-Instruct")
 VLM_ENABLED=os.getenv("VLM_ENABLED","true").lower()=="true"
-VLM_MIN_CONFIDENCE=float(os.getenv("VLM_MIN_CONFIDENCE","0.10"))
+VLM_MIN_CONFIDENCE=float(os.getenv("VLM_MIN_CONFIDENCE","0.20"))
 vlm_busy:Dict[str,bool]=defaultdict(bool)
 vlm_last:Dict[str,dict]={}
 frame_counts:Dict[str,int]=defaultdict(int)
@@ -101,20 +101,23 @@ def ask_vlm(items):
     if not VLM_ENABLED:
         return False,0.0,"VLM disabled"
     import requests
-    images=[{"type":"image_url","image_url":{"url":"data:image/jpeg;base64,"+item["jpeg"]}} for item in items]
-    prompt=("You are the final traffic-accident judge for a fixed CCTV camera. "
-            "These are 48 consecutive frames in chronological order. Decide whether the cars "
-            "actually crashed or collided during this window. Bounding-box overlap from perspective, "
-            "detector jitter, occlusion, or large boxes is NOT a crash. Cars merely driving close "
-            "together is NOT a crash. Look for actual physical contact or a clear collision event. "
+    # Send the newest available camera image directly to Qwen. There is no 48-frame
+    # batching delay: Qwen is the final contact judge for each image it receives.
+    item=items[-1]
+    image={"type":"image_url","image_url":{"url":"data:image/jpeg;base64,"+item["jpeg"]}}
+    prompt=("You are the final real-time CCTV collision judge. Inspect this single camera frame. "
+            "Decide ONLY whether two visible cars are physically touching each other right now. "
+            "Do not count bounding-box overlap caused by perspective, detector boxes, occlusion, "
+            "or cars that are merely close. If the visible car bodies/vehicles are actually in "
+            "physical contact, set accident=true. Otherwise set accident=false. "
             "Return ONLY JSON: {\"accident\":true/false,\"confidence\":0 to 1,\"reason\":\"short\"}.")
-    payload={"model":VLM_MODEL,"messages":[{"role":"user","content":[{"type":"text","text":prompt}]+images}],"temperature":0,"max_tokens":120}
+    payload={"model":VLM_MODEL,"messages":[{"role":"user","content":[{"type":"text","text":prompt},image]}],"temperature":0,"max_tokens":120}
     r=requests.post(VLM_URL,json=payload,timeout=20)
     r.raise_for_status()
     return parse_vlm(r.json()["choices"][0]["message"]["content"])
 
 def run_vlm_window(camera_id,items):
-    if len(items)<WINDOW_FRAMES or vlm_busy[camera_id]:
+    if not items or vlm_busy[camera_id]:
         return None
     vlm_busy[camera_id]=True
     try:
@@ -132,7 +135,7 @@ def run_vlm_window(camera_id,items):
 
 @app.get("/health")
 def health():
-    return {"ok":True,"detector":"YOLO11x","tracker":"BoT-SORT","window":"48 frames / 3.2 seconds at 15 FPS","input_rate":"15 FPS","final_judge":VLM_MODEL,"vlm_enabled":VLM_ENABLED}
+    return {"ok":True,"detector":"YOLO11x","tracker":"BoT-SORT","window":"single frame / immediate Qwen review","input_rate":"camera-rate (best effort)","final_judge":VLM_MODEL,"vlm_enabled":VLM_ENABLED}
 
 @app.post("/frame")
 def frame(f:Frame):
@@ -162,13 +165,14 @@ def frame(f:Frame):
     cam.append({"t":f.timestamp,"tracks":tracks,"motion":motion,"flow":flow_value,"gray":gray,"jpeg":frame_jpeg})
     frame_counts[f.camera_id]+=1
     vlm_result=None
-    if frame_counts[f.camera_id] % WINDOW_FRAMES == 0:
-        import threading
-        items=list(cam)
-        if not vlm_busy[f.camera_id]:
-            threading.Thread(target=run_vlm_window,args=(f.camera_id,items),daemon=True).start()
-            vlm_result={"started":True}
-    latest=vlm_last.get(f.camera_id,{"accident":False,"confidence":0.0,"reason":"waiting for 48-frame AI review","model":VLM_MODEL,"frames":len(cam)})
+    # Start a Qwen review for every newly received frame. If Qwen is still processing
+    # the previous frame, this frame is skipped rather than queued indefinitely.
+    import threading
+    items=[cam[-1]]
+    if not vlm_busy[f.camera_id]:
+        threading.Thread(target=run_vlm_window,args=(f.camera_id,items),daemon=True).start()
+        vlm_result={"started":True}
+    latest=vlm_last.get(f.camera_id,{"accident":False,"confidence":0.0,"reason":"waiting for Qwen frame review","model":VLM_MODEL,"frames":len(cam)})
     now=time.time()
     accident=bool(latest.get("accident")) and now-last_alert.get(f.camera_id,0)>ALERT_COOLDOWN
     if accident:last_alert[f.camera_id]=now

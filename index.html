@@ -1,8 +1,96 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>CORDDSBASE</title><link rel="stylesheet" href="styles.css?v=20260925-0819"><script src="https://cdn.jsdelivr.net/npm/livekit-client@2.22.3/dist/livekit-client.umd.min.js"></script></head>
-<body><header><b>CORDDSBASE</b><span id="status">OFFLINE</span></header>
-<main id="gate"><section class="card"><h1>CORDDSBASE</h1><p>Security camera command interface</p><div class="actions"><button id="operatorBtn">OPERATOR</button><button id="cameraBtn">CAMERA</button></div><p id="gateMsg">Ready.</p></section></main>
-<main id="app" hidden><aside><h2>CORDDSBASE</h2><button class="nav active">Cameras</button><button class="nav">Live Map</button><button class="nav">Alerts</button><button class="nav">Video Storage</button><button class="nav">Settings</button><button id="leave" class="danger">LOG OUT</button></aside><section class="content"><div class="top"><h1 id="title">Cameras</h1><span id="roomState">NO ROOM</span></div>
-<div id="operatorPanel" class="panel"><div class="row"><input id="room" placeholder="Room ID (e.g. cb-12345)"><button id="createRoom">CREATE ROOM</button></div><div id="remoteArea" class="cameraGrid"></div></div>
-<div id="cameraPanel" class="panel" hidden><div class="row"><input id="cameraRoom" placeholder="Enter the operator room ID"><button id="startCamera">ENABLE CAMERA</button></div><video id="localVideo" autoplay muted playsinline></video><p id="cameraMsg">Camera is off.</p></div>
-</section></main><script src="app.js?v=20260925-0819"></script></body></html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>CORDDSBASE</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<link rel="stylesheet" href="styles.css?v=20260925-1000">
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@2.22.3/dist/livekit-client.umd.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+</head>
+<body>
+<header><b>CORDDSBASE</b><span id="status">OFFLINE</span></header>
+
+<main id="gate">
+<section class="card">
+<h1>CORDDSBASE</h1>
+<p>Security camera command interface</p>
+<div class="actions"><button id="operatorBtn">OPERATOR</button><button id="cameraBtn">CAMERA</button></div>
+<p id="gateMsg">Ready.</p>
+</section>
+</main>
+
+<main id="app" hidden>
+<aside>
+<h2>CORDDSBASE</h2>
+<button class="nav active" data-view="cameras">Cameras <span id="cameraCount">0</span></button>
+<button class="nav" data-view="map">Live Map</button>
+<button class="nav" data-view="alerts">Alerts <span id="alertCount">0</span></button>
+<button class="nav" data-view="storage">Video Storage <span id="recordingCount">0</span></button>
+<button class="nav" data-view="ai">YOLO11 Detection</button>
+<button class="nav" data-view="settings">Settings</button>
+<button id="leave" class="danger">LOG OUT</button>
+</aside>
+
+<section class="content">
+<div class="top"><h1 id="title">Cameras</h1><span id="roomState">NO ROOM</span></div>
+
+<section id="view-cameras" class="view">
+<div id="operatorPanel" class="panel">
+<div class="row"><input id="room" placeholder="Room ID (e.g. cb-12345)"><button id="createRoom">CREATE / JOIN ROOM</button></div>
+<div class="small">Share this room ID with camera devices. Each connected phone becomes a separate camera.</div>
+<div id="remoteArea" class="cameraGrid"></div>
+</div>
+
+<div id="cameraPanel" class="panel" hidden>
+<div class="row"><input id="cameraRoom" placeholder="Enter the operator room ID"><button id="startCamera">ENABLE CAMERA</button></div>
+<video id="localVideo" autoplay muted playsinline></video>
+<p id="cameraMsg">Camera is off.</p>
+</div>
+</section>
+
+<section id="view-map" class="view" hidden>
+<div class="panel"><div id="map"></div><div class="mapLegend"><span>● ONLINE CAMERA</span><span id="mapHint">Waiting for GPS data…</span></div></div>
+</section>
+
+<section id="view-alerts" class="view" hidden>
+<div class="panel">
+<div class="sectionHead"><div><h2>Detection Alerts</h2><p>YOLO11 detections at or above the 30% confidence threshold.</p></div><button id="clearAlerts">CLEAR ALERTS</button></div>
+<div id="alertsList" class="list empty">No detection alerts yet.</div>
+</div>
+</section>
+
+<section id="view-storage" class="view" hidden>
+<div class="panel">
+<div class="sectionHead"><div><h2>Video Storage</h2><p>Recordings are kept in this operator browser until manually deleted.</p></div><button id="deleteAllRecordings" class="dangerBtn">DELETE ALL</button></div>
+<div id="storageList" class="list empty">No recordings yet.</div>
+</div>
+</section>
+
+<section id="view-ai" class="view" hidden>
+<div class="panel">
+<div class="sectionHead"><div><h2>YOLO11 Detection</h2><p>Browser-side YOLO11n pipeline. Detection threshold: <b>30%</b>.</p></div><button id="loadAi">LOAD YOLO11</button></div>
+<div id="aiStatus" class="aiStatus">AI engine not loaded.</div>
+<div class="aiGrid">
+<div><label>Detection camera</label><select id="aiCamera"><option value="">No camera selected</option></select></div>
+<div><label>Run detection</label><button id="toggleAi" disabled>START DETECTION</button></div>
+</div>
+<p class="small">The first load downloads the model and may take a while. Detection runs locally in the operator browser; no camera frames are uploaded by this page for inference.</p>
+</div>
+</section>
+
+<section id="view-settings" class="view" hidden>
+<div class="panel">
+<h2>Settings</h2>
+<div class="setting"><span>YOLO confidence threshold</span><b>30%</b></div>
+<div class="setting"><span>Recording segment length</span><b>2 minutes</b></div>
+<div class="setting"><span>Map</span><b>Leaflet + OpenStreetMap</b></div>
+<div class="setting"><span>Build</span><b>CORDDSBase 2.0</b></div>
+</div>
+</section>
+</section>
+</main>
+<script src="app.js?v=20260925-1000"></script>
+</body>
+</html>

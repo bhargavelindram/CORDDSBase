@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>CORDDSBASE</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-<link rel="stylesheet" href="styles.css?v=20260925-1000">
+<link rel="stylesheet" href="styles.css?v=20260925-1100">
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.22.3/dist/livekit-client.umd.min.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 </head>
@@ -70,11 +70,11 @@
 
 <section id="view-ai" class="view" hidden>
 <div class="panel">
-<div class="sectionHead"><div><h2>YOLO11 Detection</h2><p>Browser-side YOLO11n pipeline. Detection threshold: <b>30%</b>.</p></div><button id="loadAi">LOAD YOLO11</button></div>
+<div class="sectionHead"><div><h2>YOLO11 Detection</h2><p>Browser-side YOLO11n pipeline. Detection threshold: <b>30%</b>.</p></div><button id="loadAi">YOLO11 AUTO</button></div>
 <div id="aiStatus" class="aiStatus">AI engine not loaded.</div>
 <div class="aiGrid">
 <div><label>Detection camera</label><select id="aiCamera"><option value="">No camera selected</option></select></div>
-<div><label>Run detection</label><button id="toggleAi" disabled>START DETECTION</button></div>
+<div><label>Run detection</label><button id="toggleAi" disabled>AUTO DETECTION</button></div>
 </div>
 <p class="small">The first load downloads the model and may take a while. Detection runs locally in the operator browser; no camera frames are uploaded by this page for inference.</p>
 </div>
@@ -91,6 +91,6 @@
 </section>
 </section>
 </main>
-<script src="app.js?v=20260925-1000"></script>
+<script src="app.js?v=20260925-1100"></script>
 </body>
 </html>

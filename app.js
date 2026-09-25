@@ -60,7 +60,7 @@ function startAccidentAIForCamera(id){const c=S.cameras.get(id);if(!c||!S.accide
 function stopAccidentAIForCamera(id){const c=S.cameras.get(id);if(c)c.accidentTimer=null}
 function playAlertSound(){try{unlockAlertAudio();const ctx=S.audioCtx;if(!ctx)return;const now=ctx.currentTime;const osc=ctx.createOscillator(),gain=ctx.createGain();osc.type="square";osc.frequency.setValueAtTime(880,now);osc.frequency.setValueAtTime(660,now+.10);gain.gain.setValueAtTime(.0001,now);gain.gain.exponentialRampToValueAtTime(.18,now+.015);gain.gain.exponentialRampToValueAtTime(.0001,now+.28);osc.connect(gain);gain.connect(ctx.destination);osc.start(now);osc.stop(now+.30)}catch(e){console.warn("alert sound",e)}}
 function addAlert(camera,label,score){const key=camera+"|"+label;const now=Date.now();const last=S.alertCooldown.get(key)||0;if(now-last<10000)return;S.alertCooldown.set(key,now);const a={camera,label,score,time:now};S.alerts.unshift(a);S.alerts=S.alerts.slice(0,200);updateCounts();renderAlerts()}
-function reportCollision(c,pairKey,score){
+function reportCollision(c,pairKey,score,reason){
 const id=c.id+"|"+pairKey;
 const now=Date.now();
 const existing=S.collisions.get(id);
@@ -71,8 +71,8 @@ if(existing&&now-existing.lastSeen<8000){
 }
 const incident={id,camera:c.name||"Camera",score,time:now,lastSeen:now,status:"ACTIVE"};
 S.collisions.set(id,incident);
-addAlert(c.name||"Camera","ACCIDENT DETECTED",score);
-playAlertSound();
+addAlert(c.name||"Camera","VEHICLE COLLISION"+(reason?" · "+reason:""),score);
+playAlertTone();
 renderCollisionControl();
 }
 function acknowledgeCollision(id){
@@ -159,18 +159,7 @@ S.ai.cameras.clear();
 $("toggleAi").textContent="START VISION AGENT";
 $("aiStatus").textContent="VISION AGENT PAUSED.";
 }
-async function reportCollision(c,id,score,reason){
-const now=Date.now();
-const key=id+":"+Math.floor(now/3000);
-if(S.alertCooldown.get(key))return;
-S.alertCooldown.set(key,true);
-setTimeout(()=>S.alertCooldown.delete(key),3000);
-const incident={id:"vision-"+now+"-"+Math.random().toString(36).slice(2,7),camera:c?.name||id,score:Math.max(0,Math.min(1,score||0)),status:"ACTIVE",time:now,reason};
-S.collisions.set(incident.id,incident);
-S.alerts.unshift({label:"VEHICLE COLLISION",camera:incident.camera,score:incident.score,time:now});
-updateCounts();renderAlerts();unlockAlertAudio();playAlertTone();
-try{sendData({type:"collision:alert",camera:id,score:incident.score,reason:reason,time:now})}catch(e){}
-}async function connect(roomName,role){const L=LivekitClient;const source=tokenSource();if(S.room){try{await S.room.disconnect()}catch(e){}}S.room=new L.Room({adaptiveStream:true,dynacast:true});S.roomName=roomName;S.room.on(L.RoomEvent.TrackSubscribed,(track,publication,participant)=>{if(role!=="operator"||track.kind!=="video")return;const video=track.attach();video.autoplay=true;video.playsInline=true;const id=participant.identity;if(S.removedCameras.has(id)){track.detach();return}const name=participant?.name||participant?.identity||"Camera";cameraCard(id,name,video);if(S.ai.running)startAIForCamera(participant.identity);video.addEventListener("loadedmetadata",()=>startRecording(participant.identity),{once:true})});S.room.on(L.RoomEvent.TrackUnsubscribed,(track,publication,participant)=>{const id=participant?.identity;track.detach();if(id)removeCamera(id)});S.room.on(L.RoomEvent.DataReceived,(payload,participant)=>{
+async function connect(roomName,role){const L=LivekitClient;const source=tokenSource();if(S.room){try{await S.room.disconnect()}catch(e){}}S.room=new L.Room({adaptiveStream:true,dynacast:true});S.roomName=roomName;S.room.on(L.RoomEvent.TrackSubscribed,(track,publication,participant)=>{if(role!=="operator"||track.kind!=="video")return;const video=track.attach();video.autoplay=true;video.playsInline=true;const id=participant.identity;if(S.removedCameras.has(id)){track.detach();return}const name=participant?.name||participant?.identity||"Camera";cameraCard(id,name,video);if(S.ai.running)startAIForCamera(participant.identity);video.addEventListener("loadedmetadata",()=>startRecording(participant.identity),{once:true})});S.room.on(L.RoomEvent.TrackUnsubscribed,(track,publication,participant)=>{const id=participant?.identity;track.detach();if(id)removeCamera(id)});S.room.on(L.RoomEvent.DataReceived,(payload,participant)=>{
 let msg;try{msg=JSON.parse(new TextDecoder().decode(payload))}catch(e){return}
 if(msg.type==="camera:remove"&&role==="camera"&&msg.target===S.room?.localParticipant?.identity){
 for(const p of [...S.room.localParticipant.trackPublications.values()]){

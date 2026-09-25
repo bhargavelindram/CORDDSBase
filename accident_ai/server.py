@@ -76,7 +76,7 @@ def score_window(cam):
     items=list(cam)
     if not items: return 0.0,"waiting",None
     hit,pair=current_edge_collision(items[-1]["tracks"])
-    if hit: return 0.99,"car box edges touching",pair
+    if hit: return 0.50,"car box edges touching",pair
     return 0.0,"no edge contact",None
 
 @app.get("/health")

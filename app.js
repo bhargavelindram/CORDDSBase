@@ -4,7 +4,7 @@ const DEFAULT_TOKEN="corddsbase-vzgr9t";
 const SEGMENT_MS=120000;
 const S={room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),collisions:new Map(),removedCameras:new Set(),ai:{running:false,cameras:new Map(),timers:new Map(),busy:new Map(),frames:new Map(),agentOnline:false},map:null,watchId:null,db:null,audioCtx:null,accidentApi:"http://127.0.0.1:8000",face:{detector:null,loading:false}};
 const COCO=["person","bicycle","car","motorcycle","airplane","bus","train","truck","boat","traffic light","fire hydrant","stop sign","parking meter","bench","bird","cat","dog","horse","sheep","cow","elephant","bear","zebra","giraffe","backpack","umbrella","handbag","tie","suitcase","frisbee","skis","snowboard","sports ball","kite","baseball bat","baseball glove","skateboard","surfboard","tennis racket","bottle","wine glass","cup","fork","knife","spoon","bowl","banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake","chair","couch","potted plant","bed","dining table","toilet","tv","laptop","mouse","remote","keyboard","cell phone","microwave","oven","toaster","sink","refrigerator","book","clock","vase","scissors","teddy bear","hair drier","toothbrush"];
-function setStatus(t){$("status").textContent=t}
+function setStatus(t){$("status").textContent=t}function setVisionBadge(t,mode=""){const b=$("visionAgentBadge");if(b){b.textContent=t;b.className=mode}}
 function identity(p){return p+"-"+Math.random().toString(36).slice(2,10)}
 function tokenSource(){if(!window.LivekitClient)throw Error("LiveKit SDK did not load. Refresh the page.");if(!LivekitClient.TokenSource?.developmentTokenServer)throw Error("LiveKit TokenSource API is unavailable. Refresh the page.");return LivekitClient.TokenSource.developmentTokenServer(DEFAULT_TOKEN)}
 function sendData(obj){if(!S.room?.localParticipant)return;try{const bytes=new TextEncoder().encode(JSON.stringify(obj));S.room.localParticipant.publishData(bytes,{reliable:true})}catch(e){console.warn("data publish",e)}}
@@ -69,6 +69,8 @@ if(existing&&now-existing.lastSeen<8000){
 }
 const incident={id,camera:c.name||"Camera",score,time:now,lastSeen:now,status:"ACTIVE"};
 S.collisions.set(id,incident);
+setVisionBadge("VISION AGENT: COLLISION","alert");
+setTimeout(()=>{if(S.ai.agentOnline)setVisionBadge("VISION AGENT: ONLINE","online")},3500);
 addAlert(c.name||"Camera","VEHICLE COLLISION"+(reason?" · "+reason:""),score);
 playAlertTone();
 renderCollisionControl();
@@ -95,12 +97,14 @@ try{
 const r=await fetch(S.accidentApi+"/health",{cache:"no-store"});
 const h=await r.json();
 S.ai.agentOnline=!!h.ok;
+setVisionBadge(h.ok?"VISION AGENT: ONLINE":"VISION AGENT: OFFLINE",h.ok?"online":"");
 $("aiStatus").textContent=h.ok?"VISION AGENT ONLINE · watching connected cameras":"VISION AGENT OFFLINE · start the accident AI server";
 $("aiStatus").className="aiStatus "+(h.ok?"ready":"error");
 $("toggleAi").disabled=!h.ok;
 return h.ok;
 }catch(e){
 S.ai.agentOnline=false;
+setVisionBadge("VISION AGENT: OFFLINE","");
 $("aiStatus").textContent="VISION AGENT OFFLINE · "+(e.message||"server unavailable");
 $("aiStatus").className="aiStatus error";
 $("toggleAi").disabled=true;
@@ -155,7 +159,7 @@ S.ai.running=false;
 for(const id of [...S.ai.cameras.keys()]){clearTimeout(S.ai.timers.get(id));S.ai.timers.delete(id);S.ai.busy.delete(id)}
 S.ai.cameras.clear();
 $("toggleAi").textContent="START VISION AGENT";
-$("aiStatus").textContent="VISION AGENT PAUSED.";
+$("aiStatus").textContent="VISION AGENT PAUSED.";setVisionBadge("VISION AGENT: PAUSED","");
 }
 async function connect(roomName,role){const L=LivekitClient;const source=tokenSource();if(S.room){try{await S.room.disconnect()}catch(e){}}S.room=new L.Room({adaptiveStream:true,dynacast:true});S.roomName=roomName;S.room.on(L.RoomEvent.TrackSubscribed,(track,publication,participant)=>{if(role!=="operator"||track.kind!=="video")return;const video=track.attach();video.autoplay=true;video.playsInline=true;const id=participant.identity;if(S.removedCameras.has(id)){track.detach();return}const name=participant?.name||participant?.identity||"Camera";cameraCard(id,name,video);if(S.ai.running)startAIForCamera(participant.identity);video.addEventListener("loadedmetadata",()=>startRecording(participant.identity),{once:true})});S.room.on(L.RoomEvent.TrackUnsubscribed,(track,publication,participant)=>{const id=participant?.identity;track.detach();if(id)removeCamera(id)});S.room.on(L.RoomEvent.DataReceived,(payload,participant)=>{
 let msg;try{msg=JSON.parse(new TextDecoder().decode(payload))}catch(e){return}

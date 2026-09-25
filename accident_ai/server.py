@@ -1,185 +1,410 @@
-import base64, os, time
+import base64, math, os, time
 from collections import defaultdict, deque
-from typing import Dict
-import cv2, numpy as np
+from typing import Dict, List
+
+import cv2
+import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from ultralytics import YOLO
 
-app = FastAPI(title="CORDDSBase YOLO11x + Qwen3-VL-8B Accident AI")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
+app = FastAPI(title="CORDDSBase Local YOLO11 Collision AI")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-MODEL_PATH=os.getenv("YOLO_MODEL","yolo11x.pt")
-FRAME_SIZE=int(os.getenv("YOLO_SIZE","640"))
-WINDOW_FRAMES=int(os.getenv("WINDOW_FRAMES","8"))
-INPUT_FPS=30
-ALERT_COOLDOWN=0.0
-VLM_URL=os.getenv("VLM_URL","http://127.0.0.1:30000/v1/chat/completions")
-VLM_API_KEY=os.getenv("VLM_API_KEY","").strip()
-VLM_MODEL=os.getenv("VLM_MODEL","Qwen/Qwen3-VL-8B-Instruct")
-VLM_ENABLED=os.getenv("VLM_ENABLED","true").lower()=="true"
-VLM_MIN_CONFIDENCE=float(os.getenv("VLM_MIN_CONFIDENCE","0.20"))
-vlm_busy:Dict[str,bool]=defaultdict(bool)
-vlm_last:Dict[str,dict]={}
-frame_counts:Dict[str,int]=defaultdict(int)
-model=YOLO(MODEL_PATH)
-history:Dict[str,deque]=defaultdict(lambda:deque(maxlen=WINDOW_FRAMES))
-last_alert:Dict[str,float]={}
+MODEL_PATH = os.getenv("YOLO_MODEL", "yolo11n.pt")
+FRAME_SIZE = int(os.getenv("YOLO_SIZE", "640"))
+DETECT_CONF = float(os.getenv("YOLO_CONF", "0.20"))
+MAX_DET = int(os.getenv("YOLO_MAX_DET", "30"))
+TRACK_MAX_MISSES = int(os.getenv("TRACK_MAX_MISSES", "8"))
+ALERT_COOLDOWN = float(os.getenv("ALERT_COOLDOWN", "5.0"))
+
+# COCO vehicle classes: car, motorcycle, bus, truck.
+VEHICLE_CLASSES = {2, 3, 5, 7}
+
+# One tracker state per camera. Keeping state separate is important because
+# persistent tracking state must not leak between unrelated camera streams.
+camera_states: Dict[str, "CameraState"] = {}
+
 
 class Frame(BaseModel):
-    camera_id:str
-    timestamp:float
-    jpeg_base64:str
+    camera_id: str
+    timestamp: float
+    jpeg_base64: str
 
-def gap(a,b):
-    ax1,ay1,ax2,ay2=a;bx1,by1,bx2,by2=b
-    gx=max(0.0,max(bx1-ax2,ax1-bx2));gy=max(0.0,max(by1-ay2,ay1-by2))
-    return float((gx*gx+gy*gy)**0.5)
 
-def overlap(a,b):
-    ax1,ay1,ax2,ay2=a;bx1,by1,bx2,by2=b
-    iw=max(0.0,min(ax2,bx2)-max(ax1,bx1));ih=max(0.0,min(ay2,by2)-max(ay1,by1))
-    inter=iw*ih
-    aa=max(1.0,(ax2-ax1)*(ay2-ay1));ab=max(1.0,(bx2-bx1)*(by2-by1))
-    return float(inter/min(aa,ab))
+class Track:
+    def __init__(self, track_id: int, cls: int, box, score: float, now: float):
+        self.id = track_id
+        self.cls = cls
+        self.box = np.asarray(box, dtype=np.float32)
+        self.score = float(score)
+        self.cx, self.cy = center(self.box)
+        self.vx = 0.0
+        self.vy = 0.0
+        self.prev_speed = 0.0
+        self.speed = 0.0
+        self.age = 1
+        self.misses = 0
+        self.last_time = now
+        self.contact_speed = 0.0
 
-def spike(values):
-    if len(values)<8:return 0.0
-    base=np.asarray(values[:-4],dtype=np.float32)
-    med=float(np.median(base));mad=float(np.median(np.abs(base-med)))+1e-5
-    return max(0.0,min(1.0,float((values[-1]-med)/(6.0*1.4826*mad))))
+    def update(self, box, score, now):
+        old_cx, old_cy = self.cx, self.cy
+        dt = max(1 / 30, min(0.5, now - self.last_time))
+        self.prev_speed = self.speed
+        self.box = np.asarray(box, dtype=np.float32)
+        self.score = float(score)
+        self.cx, self.cy = center(self.box)
+        raw_vx = (self.cx - old_cx) / dt
+        raw_vy = (self.cy - old_cy) / dt
+        # Smooth velocity to reduce detector jitter.
+        self.vx = self.vx * 0.45 + raw_vx * 0.55
+        self.vy = self.vy * 0.45 + raw_vy * 0.55
+        self.speed = math.hypot(self.vx, self.vy)
+        self.age += 1
+        self.misses = 0
+        self.last_time = now
 
-TOUCH_PX=int(os.getenv("TOUCH_PX","8"))
 
-# Crash = detected car boxes touching at an edge or within a tiny gap.
-# Positive rectangle overlap is explicitly NOT a crash.
-def edge_touch(a,b):
-    ax1,ay1,ax2,ay2=a;bx1,by1,bx2,by2=b
-    x_overlap=min(ax2,bx2)-max(ax1,bx1)
-    y_overlap=min(ay2,by2)-max(ay1,by1)
-    gap_x=max(0.0,max(bx1-ax2,ax1-bx2))
-    gap_y=max(0.0,max(by1-ay2,ay1-by2))
-    horizontal=gap_x<=TOUCH_PX and y_overlap>0 and x_overlap<=0
-    vertical=gap_y<=TOUCH_PX and x_overlap>0 and y_overlap<=0
-    return horizontal or vertical
+class PairState:
+    def __init__(self):
+        self.evidence = deque(maxlen=12)
+        self.contact_streak = 0
+        self.approach_streak = 0
+        self.cooldown_until = 0.0
+        self.last_distance = None
+        self.last_time = None
+        self.last_confidence = 0.0
+        self.last_reason = "monitoring"
 
-def current_edge_collision(tracks):
-    cars=[t for t in tracks if t["class"]==2]
-    for i,a in enumerate(cars):
-        for b in cars[i+1:]:
-            if edge_touch(a["box"],b["box"]):
-                return True, "CAR #{} + CAR #{}".format(a["id"],b["id"])
-    return False,None
 
-def anchor(box):
-    x1,y1,x2,y2=box
-    return ((x1+x2)*0.5,y2)
+class CameraState:
+    def __init__(self):
+        self.next_id = 1
+        self.tracks: Dict[int, Track] = {}
+        self.pairs: Dict[str, PairState] = {}
+        self.frames = 0
+        self.last_alert = 0.0
 
-def anchor_distance(a,b):
-    ax,ay=anchor(a); bx,by=anchor(b)
-    return float(((ax-bx)**2+(ay-by)**2)**0.5)
 
-def score_window(cam):
-    items=list(cam)
-    if not items: return 0.0,"waiting",None
-    hit,pair=current_edge_collision(items[-1]["tracks"])
-    if hit: return 0.10,"edge contact candidate",pair
-    return 0.0,"no edge contact",None
+model = YOLO(MODEL_PATH)
 
-def parse_vlm(text):
-    import json,re
-    try:
-        m=re.search(r"\{.*?\}",text,re.S)
-        if m:
-            obj=json.loads(m.group(0))
-            return bool(obj.get("accident",False)),float(obj.get("confidence",0)),str(obj.get("reason",""))
-    except Exception:
-        pass
-    return False,0.0,text[:240]
 
-def ask_vlm(items):
-    if not VLM_ENABLED:
-        return False,0.0,"VLM disabled"
-    import requests
-    # Send an ordered burst of recent frames as multiple images.
-    selected=items[-min(8,len(items)):]
-    content=[{"type":"text","text":(
-        "You are the final real-time CCTV collision judge. These images are consecutive "
-        "camera frames in chronological order. Decide ONLY whether two visible cars become "
-        "physically touching each other in this sequence. Ignore bounding-box overlap caused "
-        "by perspective, detector boxes, occlusion, or cars merely driving close. Look for "
-        "actual vehicle-body contact and the change across frames. Return accident=true only "
-        "when physical contact is visible in at least one frame. Otherwise false. "
-        "Return ONLY JSON: {\"accident\":true/false,\"confidence\":0 to 1,\"reason\":\"short\"}."
-    )}]
-    for item in selected:
-        content.append({"type":"image_url","image_url":{"url":"data:image/jpeg;base64,"+item["jpeg"]}})
+def center(box):
+    x1, y1, x2, y2 = [float(x) for x in box]
+    return (0.5 * (x1 + x2), 0.5 * (y1 + y2))
 
-    payload={"model":VLM_MODEL,"messages":[{"role":"user","content":content}],"temperature":0,"max_tokens":120}
-    headers={"Authorization":"Bearer "+VLM_API_KEY} if VLM_API_KEY else {}
-    r=requests.post(VLM_URL,json=payload,headers=headers,timeout=30)
-    r.raise_for_status()
-    return parse_vlm(r.json()["choices"][0]["message"]["content"])
 
-def run_vlm_window(camera_id,items):
-    if not items or vlm_busy[camera_id]:
-        return None
-    vlm_busy[camera_id]=True
-    try:
-        accident,confidence,reason=ask_vlm(items)
-        result={"accident":accident and confidence>=VLM_MIN_CONFIDENCE,
-                "confidence":round(confidence,3),"reason":reason,"model":VLM_MODEL,"frames":len(items)}
-        vlm_last[camera_id]=result
-        return result
-    except Exception as e:
-        result={"accident":False,"confidence":0.0,"reason":"VLM error: "+str(e)[:180],"model":VLM_MODEL,"frames":len(items)}
-        vlm_last[camera_id]=result
-        return result
-    finally:
-        vlm_busy[camera_id]=False
+def iou(a, b):
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    x1, y1 = max(ax1, bx1), max(ay1, by1)
+    x2, y2 = min(ax2, bx2), min(ay2, by2)
+    inter = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+    aa = max(1.0, (ax2 - ax1) * (ay2 - ay1))
+    ab = max(1.0, (bx2 - bx1) * (by2 - by1))
+    return inter / max(1.0, aa + ab - inter)
+
+
+def edge_gap(a, b):
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    gx = max(0.0, max(bx1 - ax2, ax1 - bx2))
+    gy = max(0.0, max(by1 - ay2, ay1 - by2))
+    return math.hypot(gx, gy)
+
+
+def normalized_gap(a, b, width, height):
+    scale = max(1.0, math.hypot(width, height))
+    return edge_gap(a, b) / scale
+
+
+def association_cost(track: Track, det, width, height):
+    box, cls = det["box"], det["class"]
+    if track.cls != cls:
+        return 999.0
+    px = track.cx + track.vx / 30.0
+    py = track.cy + track.vy / 30.0
+    dcx, dcy = center(box)
+    distance = math.hypot(dcx - px, dcy - py) / max(1.0, math.hypot(width, height))
+    overlap = iou(track.box, box)
+    old_area = max(1.0, (track.box[2] - track.box[0]) * (track.box[3] - track.box[1]))
+    new_area = max(1.0, (box[2] - box[0]) * (box[3] - box[1]))
+    size_delta = min(1.0, abs(math.log(new_area / old_area)))
+    return distance * 3.0 + (1.0 - overlap) * 0.45 + size_delta * 0.15
+
+
+def update_tracks(state: CameraState, detections, width, height, now):
+    candidates = []
+    for tid, track in state.tracks.items():
+        for i, det in enumerate(detections):
+            cost = association_cost(track, det, width, height)
+            # Allow larger matching distance for fast-moving vehicles.
+            max_dist = min(
+                0.20,
+                max(0.045, 0.055 + track.speed / max(1.0, math.hypot(width, height)) * 2.0),
+            )
+            if cost < 999 and cost < 0.70 and (
+                iou(track.box, det["box"]) > 0.01 or
+                math.hypot(
+                    center(det["box"])[0] - track.cx,
+                    center(det["box"])[1] - track.cy,
+                ) / max(1.0, math.hypot(width, height)) < max_dist
+            ):
+                candidates.append((cost, tid, i))
+
+    candidates.sort(key=lambda x: x[0])
+    used_tracks, used_dets = set(), set()
+
+    for _, tid, i in candidates:
+        if tid in used_tracks or i in used_dets:
+            continue
+        det = detections[i]
+        state.tracks[tid].update(det["box"], det["score"], now)
+        used_tracks.add(tid)
+        used_dets.add(i)
+
+    for tid, track in list(state.tracks.items()):
+        if tid not in used_tracks:
+            track.misses += 1
+            track.vx *= 0.90
+            track.vy *= 0.90
+            track.speed = math.hypot(track.vx, track.vy)
+            if track.misses > TRACK_MAX_MISSES:
+                del state.tracks[tid]
+
+    for i, det in enumerate(detections):
+        if i in used_dets:
+            continue
+        tid = state.next_id
+        state.next_id += 1
+        state.tracks[tid] = Track(tid, det["class"], det["box"], det["score"], now)
+
+    return [t for t in state.tracks.values() if t.misses == 0 and t.age >= 2]
+
+
+def pair_key(a, b):
+    return f"{min(a.id, b.id)}:{max(a.id, b.id)}"
+
+
+def collision_score(a: Track, b: Track, width, height, pair: PairState, now):
+    dx = b.cx - a.cx
+    dy = b.cy - a.cy
+    distance = math.hypot(dx, dy)
+    if distance < 1:
+        distance = 1.0
+    ux, uy = dx / distance, dy / distance
+
+    # Positive means the two tracked vehicles are moving toward each other.
+    relative_closing = (a.vx - b.vx) * ux + (a.vy - b.vy) * uy
+    closing = max(
+        0.0,
+        min(
+            1.0,
+            relative_closing / max(1.0, math.hypot(width, height) * 0.035),
+        ),
+    )
+
+    gap = normalized_gap(a.box, b.box, width, height)
+    overlap = iou(a.box, b.box)
+
+    # Contact is intentionally stricter than simple box overlap.
+    # Perspective/occlusion can create overlap without physical contact.
+    contact = max(
+        min(1.0, overlap / 0.20),
+        max(0.0, 1.0 - gap / 0.018),
+    )
+
+    speed_drop_a = max(
+        0.0, min(1.0, (a.prev_speed - a.speed) / max(40.0, a.prev_speed * 0.70))
+    )
+    speed_drop_b = max(
+        0.0, min(1.0, (b.prev_speed - b.speed) / max(40.0, b.prev_speed * 0.70))
+    )
+    impact = max(speed_drop_a, speed_drop_b)
+
+    # A collision-like event normally has approach -> contact -> motion change.
+    approach = closing
+    if approach > 0.45:
+        pair.approach_streak = min(pair.approach_streak + 1, 8)
+    else:
+        pair.approach_streak = max(0, pair.approach_streak - 1)
+
+    if contact > 0.55:
+        pair.contact_streak = min(pair.contact_streak + 1, 8)
+    else:
+        pair.contact_streak = max(0, pair.contact_streak - 1)
+
+    sequence_bonus = 0.0
+    if pair.approach_streak >= 2 and contact > 0.45:
+        sequence_bonus = 0.18
+    if pair.contact_streak >= 2 and impact > 0.35:
+        sequence_bonus = max(sequence_bonus, 0.22)
+
+    # Do not trigger from proximity alone. Require either a clear approach plus
+    # contact, or contact plus a significant motion change.
+    score = (
+        0.34 * contact
+        + 0.30 * approach
+        + 0.24 * impact
+        + sequence_bonus
+        + 0.12 * min(1.0, max(a.score, b.score))
+    )
+    score = max(0.0, min(0.99, score))
+
+    now_distance = distance
+    if pair.last_distance is not None and pair.last_time is not None:
+        dt = max(1 / 30, now - pair.last_time)
+        distance_velocity = (pair.last_distance - now_distance) / dt
+        if distance_velocity > math.hypot(width, height) * 0.01:
+            pair.approach_streak = min(pair.approach_streak + 1, 8)
+
+    pair.last_distance = now_distance
+    pair.last_time = now
+    pair.last_confidence = score
+
+    reasons = []
+    if approach > 0.55:
+        reasons.append("closing motion")
+    if contact > 0.60:
+        reasons.append("contact/proximity")
+    if impact > 0.35:
+        reasons.append("sudden motion change")
+    if pair.approach_streak >= 2:
+        reasons.append("multi-frame approach")
+    reason = ", ".join(reasons) if reasons else "monitoring"
+
+    return score, reason, contact, impact, approach
+
+
+def analyze_collisions(state: CameraState, tracks, width, height, now):
+    best = None
+    seen = set()
+    for i, a in enumerate(tracks):
+        for b in tracks[i + 1:]:
+            key = pair_key(a, b)
+            seen.add(key)
+            pair = state.pairs.setdefault(key, PairState())
+            score, reason, contact, impact, approach = collision_score(
+                a, b, width, height, pair, now
+            )
+            pair.evidence.append(score)
+
+            # Require multiple frames and a meaningful physical/motion sequence.
+            strong = (
+                len(pair.evidence) >= 2
+                and max(pair.evidence) >= 0.62
+                and (
+                    (contact >= 0.60 and approach >= 0.45)
+                    or (contact >= 0.70 and impact >= 0.40)
+                )
+            )
+            if strong and now >= pair.cooldown_until:
+                pair.cooldown_until = now + ALERT_COOLDOWN
+                pair.evidence.clear()
+                confidence = min(0.99, max(score, 0.68))
+                candidate = {
+                    "accident": True,
+                    "confidence": confidence,
+                    "reason": reason,
+                    "pair": f"CAR #{a.id} + CAR #{b.id}",
+                }
+                if best is None or candidate["confidence"] > best["confidence"]:
+                    best = candidate
+
+    # Remove pairs that no longer exist so stale evidence cannot fire later.
+    for key in list(state.pairs):
+        if key not in seen:
+            del state.pairs[key]
+
+    return best or {
+        "accident": False,
+        "confidence": 0.0,
+        "reason": "no confirmed collision",
+        "pair": None,
+    }
+
 
 @app.get("/health")
 def health():
-    return {"ok":True,"detector":"YOLO11x","tracker":"BoT-SORT","window":"8-frame rolling Qwen review","input_rate":"camera-rate (best effort)","final_judge":VLM_MODEL,"vlm_enabled":VLM_ENABLED,"vlm_endpoint_configured":bool(VLM_URL),"vlm_auth_configured":bool(VLM_API_KEY)}
+    return {
+        "ok": True,
+        "detector": "YOLO11 local",
+        "tracker": "per-camera motion tracker",
+        "final_judge": "local multi-frame collision reasoning",
+        "paid_services": False,
+        "cloud_vlm": False,
+    }
+
 
 @app.post("/frame")
-def frame(f:Frame):
+def frame(f: Frame):
     try:
-        jpeg=base64.b64decode(f.jpeg_base64)
-        image=cv2.imdecode(np.frombuffer(jpeg,np.uint8),cv2.IMREAD_COLOR)
-        if image is None:raise ValueError("invalid JPEG")
+        jpeg = base64.b64decode(f.jpeg_base64)
+        image = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            raise ValueError("invalid JPEG")
     except Exception as e:
-        raise HTTPException(400,"Invalid frame: "+str(e))
-    result=model.track(image,persist=True,tracker="botsort.yaml",classes=[2,3,5,7],conf=0.20,imgsz=FRAME_SIZE,max_det=30,verbose=False)[0]
-    tracks=[]
+        raise HTTPException(400, "Invalid frame: " + str(e))
+
+    now = float(f.timestamp) if math.isfinite(float(f.timestamp)) else time.time()
+    height, width = image.shape[:2]
+    state = camera_states.setdefault(f.camera_id, CameraState())
+
+    result = model.predict(
+        image,
+        classes=sorted(VEHICLE_CLASSES),
+        conf=DETECT_CONF,
+        imgsz=FRAME_SIZE,
+        max_det=MAX_DET,
+        verbose=False,
+    )[0]
+
+    detections = []
     if result.boxes is not None:
-        ids=result.boxes.id
-        for i,box in enumerate(result.boxes.xyxy.cpu().numpy()):
-            tid=int(ids[i]) if ids is not None else i
-            tracks.append({"id":tid,"class":int(result.boxes.cls[i]),"confidence":float(result.boxes.conf[i]),"box":[float(x) for x in box]})
-    small=cv2.resize(image,(640,360))
-    ok,encoded=cv2.imencode(".jpg",small,[int(cv2.IMWRITE_JPEG_QUALITY),65])
-    frame_jpeg=base64.b64encode(encoded.tobytes()).decode("ascii") if ok else ""
-    gray=cv2.cvtColor(small,cv2.COLOR_BGR2GRAY)
-    cam=history[f.camera_id];previous=cam[-1]["gray"] if cam else None
-    motion=float(np.mean(cv2.absdiff(gray,previous))) if previous is not None else 0.0
-    flow_value=0.0
-    if previous is not None:
-        flow=cv2.calcOpticalFlowFarneback(previous,gray,None,0.5,2,15,2,5,1.2,0)
-        flow_value=float(np.percentile(cv2.magnitude(flow[...,0],flow[...,1]),90))
-    cam.append({"t":f.timestamp,"tracks":tracks,"motion":motion,"flow":flow_value,"gray":gray,"jpeg":frame_jpeg})
-    frame_counts[f.camera_id]+=1
-    vlm_result=None
-    # Start a Qwen review for every newly received frame. If Qwen is still processing
-    # the previous frame, this frame is skipped rather than queued indefinitely.
-    import threading
-    items=list(cam)
-    if not vlm_busy[f.camera_id]:
-        threading.Thread(target=run_vlm_window,args=(f.camera_id,items),daemon=True).start()
-        vlm_result={"started":True}
-    latest=vlm_last.get(f.camera_id,{"accident":False,"confidence":0.0,"reason":"waiting for Qwen frame review","model":VLM_MODEL,"frames":len(cam)})
-    now=time.time()
-    accident=bool(latest.get("accident")) and now-last_alert.get(f.camera_id,0)>ALERT_COOLDOWN
-    if accident:last_alert[f.camera_id]=now
-    return {"accident":accident,"confidence":float(latest.get("confidence",0)),"reason":latest.get("reason",""),"pair":None,"tracks":tracks,"window_frames":len(cam),"window_seconds":round(len(cam)/INPUT_FPS,2),"frames_received":frame_counts[f.camera_id],"touch_tolerance_px":TOUCH_PX,"vlm":latest,"vlm_reviewed":vlm_result is not None}
+        for box, cls, conf in zip(
+            result.boxes.xyxy.cpu().numpy(),
+            result.boxes.cls.cpu().numpy(),
+            result.boxes.conf.cpu().numpy(),
+        ):
+            detections.append(
+                {
+                    "class": int(cls),
+                    "score": float(conf),
+                    "box": [float(x) for x in box],
+                }
+            )
+
+    tracks = update_tracks(state, detections, width, height, now)
+    collision = analyze_collisions(state, tracks, width, height, now)
+    state.frames += 1
+
+    output_tracks = [
+        {
+            "id": t.id,
+            "class": t.cls,
+            "confidence": round(t.score, 3),
+            "box": [round(float(x), 2) for x in t.box],
+            "vx": round(float(t.vx), 2),
+            "vy": round(float(t.vy), 2),
+        }
+        for t in tracks
+    ]
+
+    return {
+        **collision,
+        "tracks": output_tracks,
+        "window_frames": min(state.frames, 12),
+        "window_seconds": round(min(state.frames, 12) / 30.0, 2),
+        "frames_received": state.frames,
+        "detector_confidence": DETECT_CONF,
+        "model": MODEL_PATH,
+        "paid_services": False,
+    }

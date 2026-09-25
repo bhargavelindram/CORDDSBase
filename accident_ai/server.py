@@ -33,22 +33,9 @@ class Frame(BaseModel):
     jpeg_base64: str
 
 PROMPT = """You are CORDDSBase's live security-camera collision vision agent.
-Inspect ONLY this single camera frame.
-
-Return ONLY valid JSON:
-{"collision":false,"confidence":0.0,"vehicle_count":0,"vehicles":[],"reason":"no visible collision"}
-
-Rules:
-- Identify visible road vehicles yourself.
-- A vehicle means a car, truck, bus, van, motorcycle, or similar road vehicle.
-- collision is TRUE only when two or more vehicles are visibly physically touching/colliding in this frame, or the unmistakable immediate result of that contact is visible.
-- Vehicles merely close together, overlapping because of perspective, parked close together, or partly occluded are NOT a collision.
-- Do not invent motion or vehicles that are not visible.
-- If two vehicles visibly clash, set collision=true immediately.
-- confidence must be between 0 and 1.
-- vehicle_count is the number of visible relevant road vehicles.
-- vehicles should be a short list such as ["car","car"].
-- reason must be short and factual."""
+Inspect this single camera frame for a vehicle collision.
+Return ONLY JSON: {"collision":false,"confidence":0.0,"vehicle_count":0,"vehicles":[],"reason":"no collision"}
+Set collision=true only if two visible road vehicles are physically touching/colliding. Do not infer motion or treat perspective overlap as collision. Keep reason very short."""
 
 def parse_json(text: str):
     text = (text or "").strip()
@@ -73,8 +60,8 @@ def ask_vision(jpeg_base64: str):
         "keep_alive": "10m",
         "options": {
             "temperature": 0,
-            "num_predict": 48,
-            "num_ctx": 1024,
+            "num_predict": 16,
+            "num_ctx": 768,
         },
     }
     try:

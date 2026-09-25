@@ -21,7 +21,7 @@
 </section>
 </main>
 
-<main id="app">
+<main id="app" hidden>
 <aside>
 <h2>CORDDSBASE</h2>
 <button class="nav active" data-view="cameras">Cameras <span id="cameraCount">0</span></button>
@@ -93,33 +93,42 @@
 </main>
 <script>
 (function(){
-  function openMode(role){
-    var gate=document.getElementById("gate"), app=document.getElementById("app");
-    var op=document.getElementById("operatorPanel"), cam=document.getElementById("cameraPanel");
-    if(!gate||!app)return;
-    gate.hidden=true; app.hidden=false;
-    if(op)op.hidden=role!=="operator";
-    if(cam)cam.hidden=role!=="camera";
-    var title=document.getElementById("title");
-    if(title)title.textContent=role==="operator"?"Cameras":"Camera";
-    var status=document.getElementById("status");
-    if(status)status.textContent=role.toUpperCase();
+  var selectedRole="";
+  var gate=document.getElementById("gate"), app=document.getElementById("app");
+  var loginPanel=document.getElementById("loginPanel"), password=document.getElementById("loginPassword"), label=document.getElementById("loginLabel"), msg=document.getElementById("gateMsg");
+  function choose(role){
+    selectedRole=role;
+    if(role==="camera"){
+      loginPanel.hidden=true;
+      document.getElementById("cameraBtn").click();
+      return;
+    }
+    loginPanel.hidden=false;
+    label.textContent=role==="operator"?"Operator password":"Legal password";
+    password.value="";
+    password.focus();
+    msg.textContent=role.toUpperCase()+" login required.";
   }
-  document.getElementById("operatorBtn").addEventListener("click",function(){openMode("operator")});
-  document.getElementById("cameraBtn").addEventListener("click",function(){openMode("camera")});
+  document.getElementById("operatorBtn").onclick=function(){choose("operator")};
+  document.getElementById("legalBtn").onclick=function(){choose("legal")};
+  document.getElementById("cameraBtn").onclick=function(){choose("camera")};
+  document.getElementById("loginSubmit").onclick=function(){
+    var expected=selectedRole==="operator"?"op":"legal";
+    if(password.value!==expected){msg.textContent="Incorrect password.";password.select();return}
+    window.CORDDS_VIEW_ROLE=selectedRole;
+    loginPanel.hidden=true;
+    msg.textContent=selectedRole.toUpperCase()+" AUTHORIZED.";
+    var btn=document.getElementById("createRoom");
+    if(btn)btn.click();
+  };
+  password.addEventListener("keydown",function(e){if(e.key==="Enter")document.getElementById("loginSubmit").click()});
 })();
 </script>
 <script src="app.js?v=20260925-1220"></script>
 <script>
 window.addEventListener("load",function(){
-  setTimeout(function(){
-    var room=document.getElementById("room");
-    var saved="";
-    try{saved=localStorage.getItem("cordds_room")||""}catch(e){}
-    if(room)room.value=saved||room.value||"Bum";
-    var btn=document.getElementById("createRoom");
-    if(btn)btn.click();
-  },150);
+  document.getElementById("gate").hidden=false;
+  document.getElementById("app").hidden=true;
 });
 </script>
 </body>

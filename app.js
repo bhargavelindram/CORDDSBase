@@ -115,10 +115,10 @@ $("toggleAi").disabled=true;
 return false;
 }}
 function captureAgentFrame(video){
-const w=Math.min(256,video.videoWidth||256),h=Math.max(1,Math.round(w*(video.videoHeight||360)/(video.videoWidth||512)));
+const w=Math.min(512,video.videoWidth||512),h=Math.max(1,Math.round(w*(video.videoHeight||360)/(video.videoWidth||512)));
 const canvas=document.createElement("canvas");canvas.width=w;canvas.height=h;
 canvas.getContext("2d",{alpha:false}).drawImage(video,0,0,w,h);
-return canvas.toDataURL("image/jpeg",0.45).split(",")[1];
+return canvas.toDataURL("image/jpeg",0.6).split(",")[1];
 }
 function motionGate(video,id){
   const w=96,h=54;

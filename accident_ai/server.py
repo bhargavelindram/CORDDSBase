@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from ultralytics import YOLO
 
-app = FastAPI(title="CORDDSBase YOLO11x Temporal Accident AI")
+app = FastAPI(title="CORDDSBase YOLO11x + Qwen3-VL-8B Accident AI")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 
 MODEL_PATH=os.getenv("YOLO_MODEL","yolo11x.pt")
@@ -16,7 +16,7 @@ WINDOW_FRAMES=1
 INPUT_FPS=30
 ALERT_COOLDOWN=0.0
 VLM_URL=os.getenv("VLM_URL","http://127.0.0.1:30000/v1/chat/completions")
-VLM_MODEL=os.getenv("VLM_MODEL","Qwen/Qwen3-VL-32B-Instruct")
+VLM_MODEL=os.getenv("VLM_MODEL","Qwen/Qwen3-VL-8B-Instruct")
 VLM_ENABLED=os.getenv("VLM_ENABLED","true").lower()=="true"
 VLM_MIN_CONFIDENCE=float(os.getenv("VLM_MIN_CONFIDENCE","0.20"))
 vlm_busy:Dict[str,bool]=defaultdict(bool)

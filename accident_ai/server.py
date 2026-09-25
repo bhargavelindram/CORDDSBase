@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-app = FastAPI(title="CORDDSBase Vision Collision Agent")
+app = FastAPI(title="CORDDSBase Local Vision Collision Agent")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -15,9 +15,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-5.6-luna")
-FRAME_TIMEOUT = float(os.getenv("VISION_TIMEOUT", "8"))
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
+VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "llava:7b")
+FRAME_TIMEOUT = float(os.getenv("VISION_TIMEOUT", "30"))
 ALERT_COOLDOWN = float(os.getenv("VISION_ALERT_COOLDOWN", "2"))
 last_alert_by_camera: Dict[str, float] = {}
 
@@ -25,6 +25,24 @@ class Frame(BaseModel):
     camera_id: str
     timestamp: float
     jpeg_base64: str
+
+PROMPT = """You are CORDDSBase's live security-camera collision vision agent.
+Inspect ONLY this single camera frame.
+
+Return ONLY valid JSON:
+{"collision":false,"confidence":0.0,"vehicle_count":0,"vehicles":[],"reason":"no visible collision"}
+
+Rules:
+- Identify visible road vehicles yourself.
+- A vehicle means a car, truck, bus, van, motorcycle, or similar road vehicle.
+- collision is TRUE only when two or more vehicles are visibly physically touching/colliding in this frame, or the unmistakable immediate result of that contact is visible.
+- Vehicles merely close together, overlapping because of perspective, parked close together, or partly occluded are NOT a collision.
+- Do not invent motion or vehicles that are not visible.
+- If two vehicles visibly clash, set collision=true immediately.
+- confidence must be between 0 and 1.
+- vehicle_count is the number of visible relevant road vehicles.
+- vehicles should be a short list such as ["car","car"].
+- reason must be short and factual."""
 
 def parse_json(text: str):
     text = (text or "").strip()
@@ -40,60 +58,32 @@ def parse_json(text: str):
     return None
 
 def ask_vision(jpeg_base64: str):
-    if not OPENAI_API_KEY:
-        raise HTTPException(503, "OPENAI_API_KEY is not configured on the accident AI server.")
-
-    prompt = """You are CORDDSBase's live security-camera collision vision agent.
-Inspect ONLY this single camera frame.
-
-Return ONLY valid JSON:
-{"collision":false,"confidence":0.0,"vehicle_count":0,"vehicles":[],"reason":"no visible collision"}
-
-Rules:
-- Identify visible road vehicles yourself. Do not assume that every object is a car.
-- A collision is TRUE only when the image visibly shows two or more vehicles physically colliding/contacting each other, or the unmistakable immediate result of that contact in this frame.
-- Cars merely driving close together, overlapping in perspective, parked close together, or being occluded are NOT a collision.
-- Do not invent motion that is not visible.
-- If there are two cars and they visibly clash, set collision=true immediately.
-- confidence is 0 to 1 and should reflect how clearly the frame supports the decision.
-- vehicle_count is the number of visible relevant vehicles.
-- vehicles should contain short labels such as car, truck, bus, motorcycle.
-- reason must be short and factual."""
     payload = {
         "model": VISION_MODEL,
-        "input": [{
-            "role": "user",
-            "content": [
-                {"type": "input_text", "text": prompt},
-                {"type": "input_image", "image_url": "data:image/jpeg;base64," + jpeg_base64, "detail": "low"},
-            ],
-        }],
+        "prompt": PROMPT,
+        "images": [jpeg_base64],
+        "stream": False,
+        "format": "json",
+        "options": {
+            "temperature": 0
+        },
     }
     try:
         r = requests.post(
-            "https://api.openai.com/v1/responses",
-            headers={"Authorization": "Bearer " + OPENAI_API_KEY, "Content-Type": "application/json"},
+            OLLAMA_URL + "/api/generate",
             json=payload,
             timeout=FRAME_TIMEOUT,
         )
         if r.status_code >= 400:
-            raise HTTPException(502, "Vision API error: " + r.text[:500])
+            raise HTTPException(502, "Ollama error: " + r.text[:500])
         body = r.json()
-        text = body.get("output_text", "")
-        if not text:
-            parts = []
-            for item in body.get("output", []):
-                for content in item.get("content", []):
-                    if content.get("type") in ("output_text", "text"):
-                        parts.append(content.get("text", ""))
-            text = "".join(parts)
-        result = parse_json(text)
+        result = parse_json(body.get("response", ""))
         if not isinstance(result, dict):
-            raise HTTPException(502, "Vision agent returned invalid JSON.")
+            raise HTTPException(502, "Local vision agent returned invalid JSON.")
         return {
             "collision": bool(result.get("collision", False)),
             "confidence": max(0.0, min(1.0, float(result.get("confidence", 0.0)))),
-            "vehicle_count": int(result.get("vehicle_count", 0)),
+            "vehicle_count": max(0, int(result.get("vehicle_count", 0))),
             "vehicles": result.get("vehicles", []) if isinstance(result.get("vehicles", []), list) else [],
             "reason": str(result.get("reason", "vision agent decision")),
             "model": VISION_MODEL,
@@ -101,17 +91,34 @@ Rules:
     except HTTPException:
         raise
     except requests.RequestException as e:
-        raise HTTPException(502, "Vision API request failed: " + str(e))
+        raise HTTPException(502, "Ollama request failed: " + str(e))
 
 @app.get("/health")
 def health():
-    return {
-        "ok": bool(OPENAI_API_KEY),
-        "agent": "OpenAI vision collision agent",
-        "model": VISION_MODEL,
-        "vehicle_identifier": "vision agent",
-        "paid_services": True,
-    }
+    try:
+        r = requests.get(OLLAMA_URL + "/api/tags", timeout=3)
+        r.raise_for_status()
+        models = r.json().get("models", [])
+        names = [m.get("name", "") for m in models]
+        installed = VISION_MODEL in names or any(n.split(":")[0] == VISION_MODEL.split(":")[0] for n in names)
+        return {
+            "ok": installed,
+            "agent": "local Ollama vision collision agent",
+            "model": VISION_MODEL,
+            "vehicle_identifier": "vision agent",
+            "paid_services": False,
+            "ollama": OLLAMA_URL,
+        }
+    except requests.RequestException:
+        return {
+            "ok": False,
+            "agent": "local Ollama vision collision agent",
+            "model": VISION_MODEL,
+            "vehicle_identifier": "vision agent",
+            "paid_services": False,
+            "ollama": OLLAMA_URL,
+            "error": "Ollama is not reachable",
+        }
 
 @app.post("/frame")
 def frame(f: Frame):
@@ -139,5 +146,5 @@ def frame(f: Frame):
         "camera_id": f.camera_id,
         "frame_timestamp": f.timestamp,
         "model": result["model"],
-        "agent": "OpenAI vision collision agent",
+        "agent": "local Ollama vision collision agent",
     }

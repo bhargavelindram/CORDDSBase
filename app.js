@@ -31,6 +31,44 @@ function letterbox(video,size=640){const vw=video.videoWidth||640,vh=video.video
 function tensorFromCanvas(canvas){const im=canvas.getContext("2d",{willReadFrequently:true}).getImageData(0,0,canvas.width,canvas.height).data;const area=canvas.width*canvas.height,chw=new Float32Array(area*3);for(let p=0;p<area;p++){chw[p]=im[p*4]/255;chw[area+p]=im[p*4+1]/255;chw[2*area+p]=im[p*4+2]/255}return new S.ai.ort.Tensor("float32",chw,[1,3,canvas.height,canvas.width])}
 function iou(a,b){const x1=Math.max(a.xmin,b.xmin),y1=Math.max(a.ymin,b.ymin),x2=Math.min(a.xmax,b.xmax),y2=Math.min(a.ymax,b.ymax),inter=Math.max(0,x2-x1)*Math.max(0,y2-y1),aa=Math.max(0,a.xmax-a.xmin)*Math.max(0,a.ymax-a.ymin),ab=Math.max(0,b.xmax-b.xmin)*Math.max(0,b.ymax-b.ymin);return inter/(aa+ab-inter||1)}
 function nms(dets,limit=.45){const out=[],sorted=[...dets].sort((a,b)=>b.score-a.score);while(sorted.length){const best=sorted.shift();out.push(best);for(let i=sorted.length-1;i>=0;i--)if(sorted[i].label===best.label&&iou(sorted[i].box,best.box)>limit)sorted.splice(i,1)}return out}
+function drawDetections(c,dets){
+const v=c.video,canvas=c.overlay;
+if(!v||!canvas)return;
+const w=v.videoWidth||640,h=v.videoHeight||360;
+if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h}
+const ctx=canvas.getContext("2d");
+ctx.clearRect(0,0,w,h);
+ctx.lineWidth=Math.max(2,Math.round(w/500));
+ctx.font="700 "+Math.max(14,Math.round(w/65))+"px Arial";
+const cars=dets.filter(d=>d.label==="car");
+for(const d of dets){
+const x=d.box.xmin,y=d.box.ymin,bw=d.box.xmax-d.box.xmin,bh=d.box.ymax-d.box.ymin;
+ctx.strokeStyle="#ff0000";
+ctx.strokeRect(x,y,bw,bh);
+const label=d.label+" "+Math.round(d.score*100)+"%";
+const tw=ctx.measureText(label).width+12,th=24;
+ctx.fillStyle="#ff0000";
+ctx.fillRect(x,Math.max(0,y-th),tw,th);
+ctx.fillStyle="#ffffff";
+ctx.fillText(label,x+6,Math.max(17,y-6));
+}
+if(cars.length>=2){
+for(let i=0;i<cars.length;i++)for(let j=i+1;j<cars.length;j++){
+const a=cars[i].box,b=cars[j].box;
+const overlap=iou(a,b);
+const acx=(a.xmin+a.xmax)/2,acy=(a.ymin+a.ymax)/2;
+const bcx=(b.xmin+b.xmax)/2,bcy=(b.ymin+b.ymax)/2;
+const distance=Math.hypot(acx-bcx,acy-bcy)/Math.max(w,h);
+if(overlap>0.08||distance<0.12){
+addAlert(c.name,"VEHICLE COLLISION",Math.max(cars[i].score,cars[j].score));
+ctx.strokeStyle="#ffffff";
+ctx.lineWidth=Math.max(4,Math.round(w/250));
+const x=Math.min(a.xmin,b.xmin),y=Math.min(a.ymin,b.ymin),x2=Math.max(a.xmax,b.xmax),y2=Math.max(a.ymax,b.ymax);
+ctx.strokeRect(x,y,x2-x,y2-y);
+}
+}
+}
+}
 function decodeYOLO(output,meta){const data=output.data,dims=output.dims,channels=dims[1],count=dims[2],transposed=channels!==84,attrs=transposed?count:channels,n=transposed?channels:count;const get=(a,c)=>transposed?data[c*attrs+a]:data[a*n+c];const dets=[];for(let c=0;c<n;c++){let score=0,cls=-1;for(let a=4;a<attrs;a++){const v=get(a,c);if(v>score){score=v;cls=a-4}}if(score<YOLO_THRESHOLD)continue;const cx=get(0,c),cy=get(1,c),bw=get(2,c),bh=get(3,c);const box={xmin:Math.max(0,Math.min(meta.vw,(cx-bw/2-meta.dx)/meta.scale)),ymin:Math.max(0,Math.min(meta.vh,(cy-bh/2-meta.dy)/meta.scale)),xmax:Math.max(0,Math.min(meta.vw,(cx+bw/2-meta.dx)/meta.scale)),ymax:Math.max(0,Math.min(meta.vh,(cy+bh/2-meta.dy)/meta.scale))};if(box.xmax>box.xmin&&box.ymax>box.ymin)dets.push({score,label:COCO[cls]||("class "+cls),box})}return nms(dets)}
 async function detectFrame(id){const c=S.cameras.get(id);if(!S.ai.running||!S.ai.session||!c)return;if(!c.video||c.video.readyState<2){scheduleDetect(id);return}try{const meta=letterbox(c.video),input=tensorFromCanvas(meta.canvas),feeds={};feeds[S.ai.session.inputNames[0]]=input;const result=await S.ai.session.run(feeds),output=result[S.ai.session.outputNames[0]];drawDetections(c,decodeYOLO(output,meta))}catch(e){console.warn("YOLO11 inference",e)}scheduleDetect(id)}
 function scheduleDetect(id){if(S.ai.running){clearTimeout(S.ai.timers.get(id));S.ai.timers.set(id,setTimeout(()=>detectFrame(id),700))}}

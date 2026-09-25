@@ -12,7 +12,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False,
 
 MODEL_PATH=os.getenv("YOLO_MODEL","yolo11x.pt")
 FRAME_SIZE=int(os.getenv("YOLO_SIZE","640"))
-WINDOW_FRAMES=1
+WINDOW_FRAMES=int(os.getenv("WINDOW_FRAMES","8"))
 INPUT_FPS=30
 ALERT_COOLDOWN=0.0
 VLM_URL=os.getenv("VLM_URL","http://127.0.0.1:30000/v1/chat/completions")
@@ -102,17 +102,21 @@ def ask_vlm(items):
     if not VLM_ENABLED:
         return False,0.0,"VLM disabled"
     import requests
-    # Send the newest available camera image directly to Qwen. There is no 48-frame
-    # batching delay: Qwen is the final contact judge for each image it receives.
-    item=items[-1]
-    image={"type":"image_url","image_url":{"url":"data:image/jpeg;base64,"+item["jpeg"]}}
-    prompt=("You are the final real-time CCTV collision judge. Inspect this single camera frame. "
-            "Decide ONLY whether two visible cars are physically touching each other right now. "
-            "Do not count bounding-box overlap caused by perspective, detector boxes, occlusion, "
-            "or cars that are merely close. If the visible car bodies/vehicles are actually in "
-            "physical contact, set accident=true. Otherwise set accident=false. "
-            "Return ONLY JSON: {\"accident\":true/false,\"confidence\":0 to 1,\"reason\":\"short\"}.")
-    payload={"model":VLM_MODEL,"messages":[{"role":"user","content":[{"type":"text","text":prompt},image]}],"temperature":0,"max_tokens":120}
+    # Send an ordered burst of recent frames as multiple images.
+    selected=items[-min(8,len(items)):]
+    content=[{"type":"text","text":(
+        "You are the final real-time CCTV collision judge. These images are consecutive "
+        "camera frames in chronological order. Decide ONLY whether two visible cars become "
+        "physically touching each other in this sequence. Ignore bounding-box overlap caused "
+        "by perspective, detector boxes, occlusion, or cars merely driving close. Look for "
+        "actual vehicle-body contact and the change across frames. Return accident=true only "
+        "when physical contact is visible in at least one frame. Otherwise false. "
+        "Return ONLY JSON: {\"accident\":true/false,\"confidence\":0 to 1,\"reason\":\"short\"}."
+    )}]
+    for item in selected:
+        content.append({"type":"image_url","image_url":{"url":"data:image/jpeg;base64,"+item["jpeg"]}})
+
+    payload={"model":VLM_MODEL,"messages":[{"role":"user","content":content}],"temperature":0,"max_tokens":120}
     headers={"Authorization":"Bearer "+VLM_API_KEY} if VLM_API_KEY else {}
     r=requests.post(VLM_URL,json=payload,headers=headers,timeout=30)
     r.raise_for_status()
@@ -137,7 +141,7 @@ def run_vlm_window(camera_id,items):
 
 @app.get("/health")
 def health():
-    return {"ok":True,"detector":"YOLO11x","tracker":"BoT-SORT","window":"single frame / immediate Qwen review","input_rate":"camera-rate (best effort)","final_judge":VLM_MODEL,"vlm_enabled":VLM_ENABLED,"vlm_endpoint_configured":bool(VLM_URL),"vlm_auth_configured":bool(VLM_API_KEY)}
+    return {"ok":True,"detector":"YOLO11x","tracker":"BoT-SORT","window":"8-frame rolling Qwen review","input_rate":"camera-rate (best effort)","final_judge":VLM_MODEL,"vlm_enabled":VLM_ENABLED,"vlm_endpoint_configured":bool(VLM_URL),"vlm_auth_configured":bool(VLM_API_KEY)}
 
 @app.post("/frame")
 def frame(f:Frame):
@@ -170,7 +174,7 @@ def frame(f:Frame):
     # Start a Qwen review for every newly received frame. If Qwen is still processing
     # the previous frame, this frame is skipped rather than queued indefinitely.
     import threading
-    items=[cam[-1]]
+    items=list(cam)
     if not vlm_busy[f.camera_id]:
         threading.Thread(target=run_vlm_window,args=(f.camera_id,items),daemon=True).start()
         vlm_result={"started":True}

@@ -1,7 +1,7 @@
 (()=>{"use strict";
 const $=id=>document.getElementById(id);
 const DEFAULT_TOKEN="corddsbase-vzgr9t";
-const YOLO_THRESHOLD=.30;
+const YOLO_THRESHOLD=.20;
 const YOLO_MODEL="https://huggingface.co/webnn/yolo11n/resolve/main/onnx/yolo11n.onnx?download=true";
 const SEGMENT_MS=120000;
 const S={room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),ai:{session:null,loading:false,running:false,cameras:new Map(),timers:new Map(),ort:null},map:null,watchId:null,db:null};
@@ -69,7 +69,7 @@ ctx.strokeRect(x,y,x2-x,y2-y);
 }
 }
 }
-function decodeYOLO(output,meta){const data=output.data,dims=output.dims,channels=dims[1],count=dims[2],transposed=channels!==84,attrs=transposed?count:channels,n=transposed?channels:count;const get=(a,c)=>transposed?data[c*attrs+a]:data[a*n+c];const dets=[];for(let c=0;c<n;c++){let score=0,cls=-1;for(let a=4;a<attrs;a++){const v=get(a,c);if(v>score){score=v;cls=a-4}}if(score<YOLO_THRESHOLD)continue;const cx=get(0,c),cy=get(1,c),bw=get(2,c),bh=get(3,c);const box={xmin:Math.max(0,Math.min(meta.vw,(cx-bw/2-meta.dx)/meta.scale)),ymin:Math.max(0,Math.min(meta.vh,(cy-bh/2-meta.dy)/meta.scale)),xmax:Math.max(0,Math.min(meta.vw,(cx+bw/2-meta.dx)/meta.scale)),ymax:Math.max(0,Math.min(meta.vh,(cy+bh/2-meta.dy)/meta.scale))};if(box.xmax>box.xmin&&box.ymax>box.ymin)dets.push({score,label:COCO[cls]||("class "+cls),box})}return nms(dets)}
+function decodeYOLO(output,meta){const data=output.data,dims=output.dims,channels=dims[1],count=dims[2],transposed=channels!==84,attrs=transposed?count:channels,n=transposed?channels:count;const get=(a,c)=>transposed?data[c*attrs+a]:data[a*n+c];const dets=[];for(let c=0;c<n;c++){let score=0,cls=-1;for(let a=4;a<attrs;a++){const v=get(a,c);if(v>score){score=v;cls=a-4}}if(score<YOLO_THRESHOLD||cls!==2)continue;const cx=get(0,c),cy=get(1,c),bw=get(2,c),bh=get(3,c);const box={xmin:Math.max(0,Math.min(meta.vw,(cx-bw/2-meta.dx)/meta.scale)),ymin:Math.max(0,Math.min(meta.vh,(cy-bh/2-meta.dy)/meta.scale)),xmax:Math.max(0,Math.min(meta.vw,(cx+bw/2-meta.dx)/meta.scale)),ymax:Math.max(0,Math.min(meta.vh,(cy+bh/2-meta.dy)/meta.scale))};if(box.xmax>box.xmin&&box.ymax>box.ymin)dets.push({score,label:COCO[cls]||("class "+cls),box})}return nms(dets)}
 async function detectFrame(id){const c=S.cameras.get(id);if(!S.ai.running||!S.ai.session||!c)return;if(!c.video||c.video.readyState<2){scheduleDetect(id);return}try{const meta=letterbox(c.video),input=tensorFromCanvas(meta.canvas),feeds={};feeds[S.ai.session.inputNames[0]]=input;const result=await S.ai.session.run(feeds),output=result[S.ai.session.outputNames[0]];drawDetections(c,decodeYOLO(output,meta))}catch(e){console.warn("YOLO11 inference",e)}scheduleDetect(id)}
 function scheduleDetect(id){if(S.ai.running){clearTimeout(S.ai.timers.get(id));S.ai.timers.set(id,setTimeout(()=>detectFrame(id),700))}}
 function startAIForCamera(id){if(!S.ai.session||!S.cameras.has(id))return;S.ai.running=true;S.ai.cameras.set(id,true);$("aiStatus").textContent="YOLO11 ONLINE · detecting all connected cameras · ≥30% confidence";detectFrame(id)}

@@ -28,7 +28,7 @@
 <button class="nav" data-view="map">Live Map</button>
 <button class="nav" data-view="alerts">Alerts <span id="alertCount">0</span></button>
 <button class="nav" data-view="storage">Video Storage <span id="recordingCount">0</span></button>
-<button class="nav" data-view="ai">YOLO11 Detection</button>
+<button class="nav" data-view="ai">Vision Agent</button>
 <button class="nav" data-view="settings">Settings</button>
 <button id="leave" class="danger">LOG OUT</button>
 </aside>
@@ -56,7 +56,7 @@
 
 <section id="view-alerts" class="view" hidden>
 <div class="panel">
-<div class="sectionHead"><div><h2>Operator Collision Control</h2><p>Accident alerts use persistent vehicle IDs plus multi-frame contact, closing motion, and impact-change analysis.</p></div></div><div id="collisionOps" class="collisionOps empty">No active collision incidents.</div><div class="sectionHead alertHead"><div><h2>Detection Alerts</h2><p>YOLO11 detections at or above the 20% confidence threshold.</p></div><button id="clearAlerts">CLEAR ALERTS</button></div>
+<div class="sectionHead"><div><h2>Operator Collision Control</h2><p>Collision alerts come directly from the background vision agent watching the live camera frames.</p></div></div><div id="collisionOps" class="collisionOps empty">No active collision incidents.</div><div class="sectionHead alertHead"><div><h2>Detection Alerts</h2><p>Vision-agent alerts from connected security cameras.</p></div><button id="clearAlerts">CLEAR ALERTS</button></div>
 <div id="alertsList" class="list empty">No detection alerts yet.</div>
 </div>
 </section>
@@ -70,23 +70,23 @@
 
 <section id="view-ai" class="view" hidden>
 <div class="panel">
-<div class="sectionHead"><div><h2>YOLO11 Detection</h2><p>Browser-side YOLO11n vehicle tracking with temporal accident reasoning. Detection threshold: <b>20%</b>.</p></div><button id="loadAi">YOLO11 AUTO</button></div>
-<div id="aiStatus" class="aiStatus">AI engine not loaded.</div>
+<div class="sectionHead"><div><h2>Vision Agent</h2><p>A background AI operator observes every connected camera without drawing anything over the live video.</p></div><button id="loadAi">CHECK AGENT</button></div>
+<div id="aiStatus" class="aiStatus">VISION AGENT OFFLINE.</div>
 <div class="aiGrid">
 <div><label>Detection camera</label><select id="aiCamera"><option value="">No camera selected</option></select></div>
-<div><label>Run detection</label><button id="toggleAi" disabled>AUTO DETECTION</button></div>
+<div><label>Run agent</label><button id="toggleAi" disabled>START VISION AGENT</button></div>
 </div>
-<p class="small">YOLO11 runs in the browser. Collision confirmation runs through the local Mac accident backend at 127.0.0.1:8000, which sends frames to the local Qwen3-VL-8B server at 127.0.0.1:30000. No cloud inference is required.</p>
+<p class="small">The live camera view is never annotated. The background agent receives JPEG snapshots from every connected camera and decides whether a visible vehicle collision is present.</p>
 </div>
 </section>
 
 <section id="view-settings" class="view" hidden>
 <div class="panel">
 <h2>Settings</h2>
-<div class="setting"><span>YOLO confidence threshold</span><b>20%</b></div>
+<div class="setting"><span>Vision frame sampling</span><b>~10 checks/sec/camera</b></div>
 <div class="setting"><span>Recording segment length</span><b>2 minutes</b></div>
 <div class="setting"><span>Map</span><b>Leaflet + OpenStreetMap</b></div>
-<div class="setting"><span>Accident AI</span><div><b>CONFIGURED</b><div class="small">YOLO11x + BoT-SORT · per-frame Qwen review · Qwen3-VL-8B final judge · local Mac server</div></div></div><div class="setting"><span>Crash alert confidence</span><b>20%</b></div><div class="setting"><span>Build</span><b>CORDDSBase 2.0</b></div>
+<div class="setting"><span>Accident AI</span><div><b>VISION AGENT</b><div class="small">OpenAI vision model through the local accident AI server. No YOLO overlay.</div></div></div><div class="setting"><span>Collision decision</span><b>AI-visible vehicle contact</b></div><div class="setting"><span>Build</span><b>CORDDSBase 2.0</b></div>
 </div>
 </section>
 </section>

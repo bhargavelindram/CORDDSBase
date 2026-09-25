@@ -4,7 +4,7 @@ const DEFAULT_TOKEN="corddsbase-vzgr9t";
 const YOLO_THRESHOLD=.20;
 const YOLO_MODEL="https://huggingface.co/webnn/yolo11n/resolve/main/onnx/yolo11n.onnx?download=true";
 const SEGMENT_MS=120000;
-const S={room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),collisions:new Map(),removedCameras:new Set(),ai:{session:null,loading:false,running:false,cameras:new Map(),timers:new Map(),ort:null},map:null,watchId:null,db:null};
+const S={room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),collisions:new Map(),removedCameras:new Set(),ai:{session:null,loading:false,running:false,cameras:new Map(),timers:new Map(),ort:null},map:null,watchId:null,db:null,audioCtx:null};
 const COCO=["person","bicycle","car","motorcycle","airplane","bus","train","truck","boat","traffic light","fire hydrant","stop sign","parking meter","bench","bird","cat","dog","horse","sheep","cow","elephant","bear","zebra","giraffe","backpack","umbrella","handbag","tie","suitcase","frisbee","skis","snowboard","sports ball","kite","baseball bat","baseball glove","skateboard","surfboard","tennis racket","bottle","wine glass","cup","fork","knife","spoon","bowl","banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake","chair","couch","potted plant","bed","dining table","toilet","tv","laptop","mouse","remote","keyboard","cell phone","microwave","oven","toaster","sink","refrigerator","book","clock","vase","scissors","teddy bear","hair drier","toothbrush"];
 function setStatus(t){$("status").textContent=t}
 function identity(p){return p+"-"+Math.random().toString(36).slice(2,10)}
@@ -24,6 +24,8 @@ function openDb(){return new Promise((resolve,reject)=>{if(S.db)return resolve(S
 async function saveRecording(x){try{const db=await openDb();await new Promise((res,rej)=>{const tx=db.transaction("segments","readwrite");tx.objectStore("segments").add(x);tx.oncomplete=res;tx.onerror=()=>rej(tx.error)});refreshStorage()}catch(e){console.warn("recording save",e)}}
 async function listRecordings(){const db=await openDb();return new Promise((res,rej)=>{const r=db.transaction("segments").objectStore("segments").getAll();r.onsuccess=()=>res(r.result.sort((a,b)=>b.started-a.started));r.onerror=()=>rej(r.error)})}
 async function refreshStorage(){const list=$("storageList");const rows=await listRecordings();$("recordingCount").textContent=rows.length;if(!rows.length){list.className="list empty";list.textContent="No recordings yet.";return}list.className="list";list.innerHTML="";for(const x of rows){const item=document.createElement("div");item.className="recordItem";const meta=document.createElement("div");meta.className="recordMeta";meta.innerHTML="<b>"+escapeHtml(x.camera)+"</b><span>"+new Date(x.started).toLocaleString()+" · 2-minute segment</span>";const actions=document.createElement("div");actions.className="recordActions";const dl=document.createElement("button");dl.textContent="DOWNLOAD";dl.onclick=()=>{const u=URL.createObjectURL(x.blob);const a=document.createElement("a");a.href=u;a.download="CORDDS_"+x.camera.replace(/\W+/g,"_")+"_"+x.started+"."+((x.type||"").includes("mp4")?"mp4":"webm");a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)};const del=document.createElement("button");del.textContent="DELETE";del.onclick=async()=>{const db=await openDb();await new Promise((res,rej)=>{const tx=db.transaction("segments","readwrite");tx.objectStore("segments").delete(x.id);tx.oncomplete=res;tx.onerror=()=>rej(tx.error)});refreshStorage()};actions.append(dl,del);item.append(meta,actions);list.appendChild(item)}}
+function unlockAlertAudio(){try{if(!S.audioCtx)S.audioCtx=new (window.AudioContext||window.webkitAudioContext)();if(S.audioCtx.state==="suspended")S.audioCtx.resume()}catch(e){console.warn("alert audio",e)}}
+function playAlertSound(){try{unlockAlertAudio();const ctx=S.audioCtx;if(!ctx)return;const now=ctx.currentTime;const osc=ctx.createOscillator(),gain=ctx.createGain();osc.type="square";osc.frequency.setValueAtTime(880,now);osc.frequency.setValueAtTime(660,now+.10);gain.gain.setValueAtTime(.0001,now);gain.gain.exponentialRampToValueAtTime(.18,now+.015);gain.gain.exponentialRampToValueAtTime(.0001,now+.28);osc.connect(gain);gain.connect(ctx.destination);osc.start(now);osc.stop(now+.30)}catch(e){console.warn("alert sound",e)}}
 function addAlert(camera,label,score){const key=camera+"|"+label;const now=Date.now();const last=S.alertCooldown.get(key)||0;if(now-last<10000)return;S.alertCooldown.set(key,now);const a={camera,label,score,time:now};S.alerts.unshift(a);S.alerts=S.alerts.slice(0,200);updateCounts();renderAlerts()}
 function reportCollision(c,pairKey,score){
 const id=c.id+"|"+pairKey;
@@ -80,136 +82,28 @@ px:(b.xmin+b.xmax)/2,py:b.ymax,
 bw:Math.max(1,b.xmax-b.xmin),bh:Math.max(1,b.ymax-b.ymin)};
 });
 
-// Predict old tracks forward before matching. Tracks survive short detection dropouts,
-// so a temporary YOLO miss does not create a new CAR #.
-const predicted=[...c.tracks.values()].map(t=>{
-const dt=Math.max(.05,Math.min(.8,(now-(t.lastTime||now))/1000));
-return {...t,
-pcx:t.cx+(t.vx||0)*dt,
-pcy:t.cy+(t.vy||0)*dt,
-pbw:t.bw||Math.max(1,t.box.xmax-t.box.xmin),
-pbh:t.bh||Math.max(1,t.box.ymax-t.box.ymin)};
-});
-
-// Global greedy association using predicted position + box overlap + size.
-// This is much more stable than rebuilding the track map every frame.
+// Predict stored cars forward before matching. Every ID belongs to one persistent
+// car record and IDs are never recycled during this camera session.
+const predicted=[...c.tracks.values()].map(t=>{const dt=Math.max(.05,Math.min(.8,(now-(t.lastTime||now))/1000));return {...t,pcx:t.cx+(t.vx||0)*dt,pcy:t.cy+(t.vy||0)*dt,pbw:t.bw||Math.max(1,t.box.xmax-t.box.xmin),pbh:t.bh||Math.max(1,t.box.ymax-t.box.ymin)}});
 const candidates=[];
-for(const t of predicted){
-for(let i=0;i<observations.length;i++){
-const o=observations[i];
-const dist=Math.hypot(o.cx-t.pcx,o.cy-t.pcy)/Math.max(w,h);
-const pb={xmin:t.pcx-t.pbw/2,ymin:t.pcy-t.pbh/2,xmax:t.pcx+t.pbw/2,ymax:t.pcy+t.pbh/2};
-const ov=iou(pb,o.box);
-const sizeDiff=Math.abs(Math.log((o.bw*o.bh)/Math.max(1,t.pbw*t.pbh)));
-const cost=dist*2.2+(1-ov)*0.9+Math.min(1,sizeDiff)*0.25;
-const maxDist=Math.min(.30,Math.max(.12,0.10+Math.hypot(t.vx||0,t.vy||0)/Math.max(w,h)*2));
-if(dist<maxDist&&(ov>0.005||dist<.15))candidates.push({t,i,cost,dist});
-}
-}
-candidates.sort((a,b)=>a.cost-b.cost);
-const usedTracks=new Set(),usedObs=new Set(),updated=new Map();
-
-for(const m of candidates){
-if(usedTracks.has(m.t.id)||usedObs.has(m.i))continue;
-const o=observations[m.i],t=m.t;
-const dt=Math.max(.05,Math.min(1.0,(now-(t.lastTime||now))/1000));
-const vx=(o.cx-t.cx)/dt,vy=(o.cy-t.cy)/dt;
-const trail=(t.trail||[]).concat([[o.px,o.py]]).slice(-30);
-updated.set(t.id,{...o,id:t.id,cx:o.cx,cy:o.cy,vx,vy,bw:o.bw,bh:o.bh,
-box:o.box,trail,miss:0,age:(t.age||0)+1,lastTime:now,lastSeen:now});
-usedTracks.add(t.id);usedObs.add(m.i);
-}
-
-// Keep old IDs alive through short detector dropouts/occlusion.
-for(const t of predicted){
-if(usedTracks.has(t.id))continue;
-const miss=(t.miss||0)+1;
-if(miss<=8){
-const dt=Math.max(.05,Math.min(.8,(now-(t.lastTime||now))/1000));
-const cx=t.pcx,cy=t.pcy;
-const bw=t.pbw,bh=t.pbh;
-const box={xmin:Math.max(0,cx-bw/2),ymin:Math.max(0,cy-bh/2),
-xmax:Math.min(w,cx+bw/2),ymax:Math.min(h,cy+bh/2)};
-updated.set(t.id,{...t,cx,cy,box,bw,bh,miss,lastTime:now,predicted:true,
-trail:(t.trail||[]).concat([[cx,cy+(t.bh||0)/2]]).slice(-30),vx:(t.vx||0)*.90,vy:(t.vy||0)*.90});
-}
-}
-
-// New detections get a new ID only when no existing track can reasonably explain them.
-for(let i=0;i<observations.length;i++){
-if(usedObs.has(i))continue;
-const o=observations[i],id=c.nextTrackId++;
-updated.set(id,{...o,id,cx:o.cx,cy:o.cy,vx:0,vy:0,bw:o.bw,bh:o.bh,
-trail:[[o.px,o.py]],miss:0,age:1,lastTime:now,lastSeen:now,predicted:false});
-}
+for(const t of predicted)for(let i=0;i<observations.length;i++){const o=observations[i],dist=Math.hypot(o.cx-t.pcx,o.cy-t.pcy)/Math.max(w,h),pb={xmin:t.pcx-t.pbw/2,ymin:t.pcy-t.pbh/2,xmax:t.pcx+t.pbw/2,ymax:t.pcy+t.pbh/2},ov=iou(pb,o.box),sizeDiff=Math.abs(Math.log((o.bw*o.bh)/Math.max(1,t.pbw*t.pbh))),cost=dist*2.8+(1-ov)*.55+Math.min(1,sizeDiff)*.35,maxDist=Math.min(.22,Math.max(.07,.065+Math.hypot(t.vx||0,t.vy||0)/Math.max(w,h)*1.5));if(dist<maxDist&&(ov>.001||dist<.11))candidates.push({t,i,cost})}
+candidates.sort((a,b)=>a.cost-b.cost);const usedTracks=new Set(),usedObs=new Set(),updated=new Map();
+for(const m of candidates){if(usedTracks.has(m.t.id)||usedObs.has(m.i))continue;const o=observations[m.i],t=m.t,dt=Math.max(.05,Math.min(1,(now-(t.lastTime||now))/1000));updated.set(t.id,{...o,id:t.id,cx:o.cx,cy:o.cy,vx:(o.cx-t.cx)/dt,vy:(o.cy-t.cy)/dt,bw:o.bw,bh:o.bh,box:o.box,miss:0,age:(t.age||0)+1,lastTime:now,lastSeen:now,predicted:false});usedTracks.add(t.id);usedObs.add(m.i)}
+// Keep cars in memory through longer detector dropouts/occlusion.
+for(const t of predicted)if(!usedTracks.has(t.id)){const miss=(t.miss||0)+1;if(miss<=60){const cx=t.pcx,cy=t.pcy,bw=t.pbw,bh=t.pbh;updated.set(t.id,{...t,cx,cy,box:{xmin:Math.max(0,cx-bw/2),ymin:Math.max(0,cy-bh/2),xmax:Math.min(w,cx+bw/2),ymax:Math.min(h,cy+bh/2)},bw,bh,miss,lastTime:now,predicted:true,vx:(t.vx||0)*.92,vy:(t.vy||0)*.92})}}
+for(let i=0;i<observations.length;i++)if(!usedObs.has(i)){const o=observations[i],id=c.nextTrackId++;updated.set(id,{...o,id,cx:o.cx,cy:o.cy,vx:0,vy:0,bw:o.bw,bh:o.bh,box:o.box,miss:0,age:1,lastTime:now,lastSeen:now,predicted:false})}
 c.tracks=updated;
 
-// Draw every surviving track. Predicted frames use a thinner dashed outline,
-// but the numeric ID remains unchanged.
-for(const t of c.tracks.values()){
-if(t.trail.length>1){
-ctx.beginPath();
-ctx.strokeStyle="#ffffff";
-ctx.lineWidth=Math.max(2,Math.round(w/450));
-ctx.moveTo(t.trail[0][0],t.trail[0][1]);
-for(let i=1;i<t.trail.length;i++)ctx.lineTo(t.trail[i][0],t.trail[i][1]);
-ctx.stroke();
-}
-const b=t.box,x=b.xmin,y=b.ymin,bw=b.xmax-b.xmin,bh=b.ymax-b.ymin;
-ctx.strokeStyle=t.predicted?"#ffffff":"#ff0000";
-ctx.lineWidth=Math.max(2,Math.round(w/500));
-if(t.predicted)ctx.setLineDash([8,6]);else ctx.setLineDash([]);
-ctx.strokeRect(x,y,bw,bh);ctx.setLineDash([]);
-const label="CAR #"+t.id+(t.predicted?" · TRACKING":"")+" "+Math.round((t.score||0)*100)+"%";
-const tw=ctx.measureText(label).width+12,th=24;
-ctx.fillStyle=t.predicted?"#ffffff":"#ff0000";
-ctx.fillRect(x,Math.max(0,y-th),tw,th);
-ctx.fillStyle=t.predicted?"#000000":"#ffffff";
-ctx.fillText(label,x+6,Math.max(17,y-6));
-}
+// Draw boxes only. Trajectory lines are intentionally disabled.
+for(const t of c.tracks.values()){const b=t.box,x=b.xmin,y=b.ymin,bw=b.xmax-b.xmin,bh=b.ymax-b.ymin;ctx.strokeStyle=t.predicted?"#ffffff":"#ff0000";ctx.lineWidth=Math.max(2,Math.round(w/500));ctx.setLineDash(t.predicted?[8,6]:[]);ctx.strokeRect(x,y,bw,bh);ctx.setLineDash([]);const label="CAR #"+t.id+(t.predicted?" · TRACKING":"")+" "+Math.round((t.score||0)*100)+"%";const tw=ctx.measureText(label).width+12,th=24;ctx.fillStyle=t.predicted?"#ffffff":"#ff0000";ctx.fillRect(x,Math.max(0,y-th),tw,th);ctx.fillStyle=t.predicted?"#000000":"#ffffff";ctx.fillText(label,x+6,Math.max(17,y-6))}
 
-// Collision logic uses only confirmed visible tracks. Persistent IDs now remain
-// stable across short YOLO misses and movement.
-const tracks=[...c.tracks.values()].filter(t=>!t.predicted&&t.age>=2);
-if(!c.collisionPairs)c.collisionPairs=new Map();
-const seenPairs=new Set();
-
-for(let i=0;i<tracks.length;i++)for(let j=i+1;j<tracks.length;j++){
-const a=tracks[i],b=tracks[j];
-const key=[Math.min(a.id,b.id),Math.max(a.id,b.id)].join(":");
-seenPairs.add(key);
-
-const centerDistance=Math.hypot(a.cx-b.cx,a.cy-b.cy)/Math.max(w,h);
-const relativeVx=(a.vx||0)-(b.vx||0),relativeVy=(a.vy||0)-(b.vy||0);
-const dx=a.cx-b.cx,dy=a.cy-b.cy;
-const closing=relativeVx*dx+relativeVy*dy<0;
-
-const overlap=iou(a.box,b.box);
-const aw=Math.max(1,a.box.xmax-a.box.xmin),bw=Math.max(1,b.box.xmax-b.box.xmin);
-const ah=Math.max(1,a.box.ymax-a.box.ymin),bh=Math.max(1,b.box.ymax-b.box.ymin);
-const smaller=Math.max(1,Math.min(aw*ah,bw*bh));
-const x1=Math.max(a.box.xmin,b.box.xmin),y1=Math.max(a.box.ymin,b.box.ymin);
-const x2=Math.min(a.box.xmax,b.box.xmax),y2=Math.min(a.box.ymax,b.box.ymax);
-const intersection=Math.max(0,x2-x1)*Math.max(0,y2-y1);
-const penetration=intersection/smaller;
-
-const prev=c.collisionPairs.get(key);
-const contact=overlap>0.05&&penetration>0.10&&centerDistance<0.20&&closing;
-const streak=contact?(prev?.streak||0)+1:0;
-c.collisionPairs.set(key,{streak,centerDistance,overlap,penetration});
-
-if(streak>=2){
-reportCollision(c,key,Math.max(a.score||0,b.score||0));
-ctx.strokeStyle="#ffffff";ctx.setLineDash([]);
-ctx.lineWidth=Math.max(5,Math.round(w/220));
-const x=Math.min(a.box.xmin,b.box.xmin),y=Math.min(a.box.ymin,b.box.ymin);
-const x3=Math.max(a.box.xmax,b.box.xmax),y3=Math.max(a.box.ymax,b.box.ymax);
-ctx.strokeRect(x,y,x3-x,y3-y);
-}
-}
+// Collision = two persistent car boxes touching at their sides, with no overlap.
+// A small pixel tolerance handles sub-pixel camera motion.
+const tracks=[...c.tracks.values()].filter(t=>!t.predicted&&t.age>=1);if(!c.collisionPairs)c.collisionPairs=new Map();const seenPairs=new Set(),TOUCH_PX=Math.max(5,Math.round(w/220));
+for(let i=0;i<tracks.length;i++)for(let j=i+1;j<tracks.length;j++){const a=tracks[i],b=tracks[j],key=[Math.min(a.id,b.id),Math.max(a.id,b.id)].join(":");seenPairs.add(key);const ax1=a.box.xmin,ay1=a.box.ymin,ax2=a.box.xmax,ay2=a.box.ymax,bx1=b.box.xmin,by1=b.box.ymin,bx2=b.box.xmax,by2=b.box.ymax,xOverlap=Math.min(ax2,bx2)-Math.max(ax1,bx1),yOverlap=Math.min(ay2,by2)-Math.max(ay1,by1),gapX=Math.max(bx1-ax2,ax1-bx2,0),gapY=Math.max(by1-ay2,ay1-by2,0),touch=(xOverlap*yOverlap)<=0&&((gapX<=TOUCH_PX&&yOverlap>0)||(gapY<=TOUCH_PX&&xOverlap>0)),prev=c.collisionPairs.get(key),streak=touch?(prev?.streak||0)+1:0;c.collisionPairs.set(key,{streak});if(streak>=1)reportCollision(c,key,Math.max(a.score||0,b.score||0))}
 for(const key of c.collisionPairs.keys())if(!seenPairs.has(key))c.collisionPairs.delete(key);
 }
-function decodeYOLO(output,meta){const data=output.data,dims=output.dims,channels=dims[1],count=dims[2],transposed=channels!==84,attrs=transposed?count:channels,n=transposed?channels:count;const get=(a,c)=>transposed?data[c*attrs+a]:data[a*n+c];const dets=[];for(let c=0;c<n;c++){let score=0,cls=-1;for(let a=4;a<attrs;a++){const v=get(a,c);if(v>score){score=v;cls=a-4}}if(score<YOLO_THRESHOLD||cls!==2)continue;const cx=get(0,c),cy=get(1,c),bw=get(2,c),bh=get(3,c);const box={xmin:Math.max(0,Math.min(meta.vw,(cx-bw/2-meta.dx)/meta.scale)),ymin:Math.max(0,Math.min(meta.vh,(cy-bh/2-meta.dy)/meta.scale)),xmax:Math.max(0,Math.min(meta.vw,(cx+bw/2-meta.dx)/meta.scale)),ymax:Math.max(0,Math.min(meta.vh,(cy+bh/2-meta.dy)/meta.scale))};if(box.xmax>box.xmin&&box.ymax>box.ymin)dets.push({score,label:COCO[cls]||("class "+cls),box})}return nms(dets)}
+function decodeYOLO(output,meta){const data=output.data,dims=output.dims,channels=dims[1],count=dims[2],transposed=channels!==84,attrs=transposed?count:channels,n=transposed?channels:count;const get=(a,c)=>transposed?data[c*attrs+a]:data[a*n+c];const dets=[];for(let c=0;c<n;c++){let score=0,cls=-1;for(let a=4;a<attrs;a++){const v=get(a,c);if(v>score){score=v;cls=a-4}}if(score<YOLO_THRESHOLD||cls!==2)continue;const cx=get(0,c),cy=get(1,c),bw=get(2,c),bh=get(3,c);const box={xmin:Math.max(0,Math.min(meta.vw,(cx-bw/2-meta.dx)/meta.scale)),ymin:Math.max(0,Math.min(meta.vh,(cy-bh/2-meta.dy)/meta.scale)),xmax:Math.max(0,Math.min(meta.vw,(cx+bw/2-meta.dx)/meta.scale)),ymax:Math.max(0,Math.min(meta.vh,(cy+bh/2-meta.dy)/meta.scale))};if(box.xmax>box.xmin&&box.ymax>box.ymin)dets.push({score,label:COCO[cls]||("class "+cls),box})}return nms(dets,.70)}
 async function detectFrame(id){const c=S.cameras.get(id);if(!S.ai.running||!S.ai.session||!c)return;if(!c.video||c.video.readyState<2){scheduleDetect(id);return}try{const meta=letterbox(c.video),input=tensorFromCanvas(meta.canvas),feeds={};feeds[S.ai.session.inputNames[0]]=input;const result=await S.ai.session.run(feeds),output=result[S.ai.session.outputNames[0]];drawDetections(c,decodeYOLO(output,meta))}catch(e){console.warn("YOLO11 inference",e)}scheduleDetect(id)}
 function scheduleDetect(id){if(S.ai.running){clearTimeout(S.ai.timers.get(id));S.ai.timers.set(id,setTimeout(()=>detectFrame(id),250))}}
 function startAIForCamera(id){if(!S.ai.session||!S.cameras.has(id))return;S.ai.running=true;S.ai.cameras.set(id,true);$("aiStatus").textContent="YOLO11 ONLINE · detecting all connected cameras · ≥20% confidence";detectFrame(id)}
@@ -255,8 +149,8 @@ if(pub?.track&&S.room?.localParticipant?.unpublishTrack)return S.room.localParti
 }
 function startGps(){if(!navigator.geolocation){$("cameraMsg").textContent="This browser does not provide GPS.";return}const publish=pos=>{const lat=pos.coords.latitude,lon=pos.coords.longitude;sendData({type:"gps",lat,lon,accuracy:pos.coords.accuracy||null,id:S.room?.localParticipant?.identity});$("cameraMsg").textContent="Camera LIVE · GPS "+lat.toFixed(5)+", "+lon.toFixed(5)};S.watchId=navigator.geolocation.watchPosition(publish,e=>{$("cameraMsg").textContent="Camera LIVE · GPS unavailable ("+e.message+")"},{enableHighAccuracy:true,maximumAge:5000,timeout:15000})}
 document.querySelectorAll(".nav").forEach(b=>b.onclick=()=>showView(b.dataset.view));
-$("operatorBtn").onclick=async()=>{try{const n=$("room").value.trim()||("cb-"+Math.random().toString(36).slice(2,7));$("room").value=n;await connect(n,"operator");showApp("operator");initMap();showView("cameras");loadAI()}catch(e){$("gateMsg").textContent="Operator connection error: "+(e.message||e);setStatus("ERROR");console.error(e)}};
-$("createRoom").onclick=async()=>{try{const n=$("room").value.trim()||("cb-"+Math.random().toString(36).slice(2,7));$("room").value=n;await connect(n,"operator");showApp("operator");initMap();loadAI()}catch(e){$("roomState").textContent="ERROR: "+(e.message||e);setStatus("ERROR");console.error(e)}};
+$("operatorBtn").onclick=async()=>{try{unlockAlertAudio();const n=$("room").value.trim()||("cb-"+Math.random().toString(36).slice(2,7));$("room").value=n;await connect(n,"operator");showApp("operator");initMap();showView("cameras");loadAI()}catch(e){$("gateMsg").textContent="Operator connection error: "+(e.message||e);setStatus("ERROR");console.error(e)}};
+$("createRoom").onclick=async()=>{try{unlockAlertAudio();const n=$("room").value.trim()||("cb-"+Math.random().toString(36).slice(2,7));$("room").value=n;await connect(n,"operator");showApp("operator");initMap();loadAI()}catch(e){$("roomState").textContent="ERROR: "+(e.message||e);setStatus("ERROR");console.error(e)}};
 $("cameraBtn").onclick=()=>showApp("camera");
 $("startCamera").onclick=async()=>{const n=$("cameraRoom").value.trim();if(!n){$("cameraMsg").textContent="Enter the operator room ID.";return}let stream;try{$("cameraMsg").textContent="Requesting camera permission…";stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:720}},audio:false});$("localVideo").srcObject=stream;$("cameraMsg").textContent="Camera granted. Connecting…";await connect(n,"camera");sendData({type:"camera:hello",name:"Camera",id:S.room.localParticipant.identity});const video=stream.getVideoTracks()[0];if(!video)throw Error("No camera video track was available.");const track=new LivekitClient.LocalVideoTrack(video);await S.room.localParticipant.publishTrack(track,{name:"security-camera"});$("cameraMsg").textContent="Camera is LIVE. Keep this page open."}catch(e){if(stream)stream.getTracks().forEach(t=>t.stop());$("cameraMsg").textContent="Camera error: "+(e.message||e.name);setStatus("ERROR");console.error(e)}};
 $("loadAi").onclick=loadAI;$("toggleAi").onclick=()=>S.ai.running?stopAI():startAI();$("aiCamera").onchange=()=>{};

@@ -20,22 +20,35 @@ app.add_middleware(
 async def add_local_network_access_header(request, call_next):
     response = await call_next(request)
     response.headers["Access-Control-Allow-Private-Network"] = "true"
-    return response
+
+
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
 VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "llava:7b")
 FRAME_TIMEOUT = max(180.0, float(os.getenv("VISION_TIMEOUT", "180")))
 ALERT_COOLDOWN = float(os.getenv("VISION_ALERT_COOLDOWN", "2"))
 last_alert_by_camera: Dict[str, float] = {}
 
+
 class Frame(BaseModel):
     camera_id: str
     timestamp: float
     jpeg_base64: str
 
-PROMPT = """You are CORDDSBase's live security-camera collision vision agent.
-Inspect this single camera frame for a vehicle collision.
-Return ONLY JSON: {"collision":false,"confidence":0.0,"vehicle_count":0,"vehicles":[],"reason":"no collision"}
-Set collision=true only if two visible road vehicles are physically touching/colliding. Do not infer motion or treat perspective overlap as collision. Keep reason very short."""
+
+PROMPT = """You are CORDDSBase's vehicle collision detector.
+Look carefully at this single camera image.
+
+Detect whether two or more visible road vehicles are in PHYSICAL CONTACT.
+IMPORTANT: If one vehicle's bumper, front, rear, side, or body is visibly touching another vehicle, classify it as a collision/contact even if there is no visible damage and even if you cannot determine motion.
+Do not require crash damage or proof of motion.
+Do not classify vehicles as colliding merely because they are close or overlap from perspective; there must be visible physical contact.
+
+For the supplied image, return ONLY this compact JSON:
+{"collision":true,"confidence":0.99,"vehicle_count":2,"vehicles":["vehicle","vehicle"],"reason":"vehicles physically touching"}
+
+Set collision=true for clear bumper/body-to-body contact.
+Set collision=false when vehicles are separated with visible space.
+Keep reason under 8 words."""
 
 def parse_json(text: str):
     text = (text or "").strip()
@@ -50,17 +63,17 @@ def parse_json(text: str):
                 pass
     return None
 
+
 def ask_vision(jpeg_base64: str):
     payload = {
         "model": VISION_MODEL,
         "prompt": PROMPT,
         "images": [jpeg_base64],
         "stream": False,
-        "format": "json",
         "keep_alive": "10m",
         "options": {
             "temperature": 0,
-            "num_predict": 16,
+            "num_predict": 48,
             "num_ctx": 768,
         },
     }
@@ -95,6 +108,7 @@ def ask_vision(jpeg_base64: str):
     except requests.RequestException as e:
         raise HTTPException(502, "Ollama request failed: " + str(e))
 
+
 @app.get("/health")
 def health():
     try:
@@ -121,6 +135,7 @@ def health():
             "ollama": OLLAMA_URL,
             "error": "Ollama is not reachable",
         }
+
 
 @app.post("/frame")
 def frame(f: Frame):

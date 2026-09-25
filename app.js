@@ -4,7 +4,7 @@ const DEFAULT_TOKEN="corddsbase-vzgr9t";
 const YOLO_THRESHOLD=.20;
 const YOLO_MODEL="https://huggingface.co/webnn/yolo11n/resolve/main/onnx/yolo11n.onnx?download=true";
 const SEGMENT_MS=120000;
-const S={room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),collisions:new Map(),removedCameras:new Set(),ai:{session:null,loading:false,running:false,cameras:new Map(),timers:new Map(),ort:null},map:null,watchId:null,db:null,audioCtx:null,accidentApi:"http://127.0.0.1:8000",face:{detector:null,loading:false}};
+const S={room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),collisions:new Map(),removedCameras:new Set(),ai:{running:false,cameras:new Map(),timers:new Map(),busy:new Map(),frames:new Map(),agentOnline:false},map:null,watchId:null,db:null,audioCtx:null,accidentApi:"http://127.0.0.1:8000",face:{detector:null,loading:false}};
 const COCO=["person","bicycle","car","motorcycle","airplane","bus","train","truck","boat","traffic light","fire hydrant","stop sign","parking meter","bench","bird","cat","dog","horse","sheep","cow","elephant","bear","zebra","giraffe","backpack","umbrella","handbag","tie","suitcase","frisbee","skis","snowboard","sports ball","kite","baseball bat","baseball glove","skateboard","surfboard","tennis racket","bottle","wine glass","cup","fork","knife","spoon","bowl","banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake","chair","couch","potted plant","bed","dining table","toilet","tv","laptop","mouse","remote","keyboard","cell phone","microwave","oven","toaster","sink","refrigerator","book","clock","vase","scissors","teddy bear","hair drier","toothbrush"];
 function setStatus(t){$("status").textContent=t}
 function identity(p){return p+"-"+Math.random().toString(36).slice(2,10)}
@@ -92,107 +92,85 @@ el.querySelectorAll("[data-ack]").forEach(b=>b.onclick=()=>acknowledgeCollision(
 el.querySelectorAll("[data-clear]").forEach(b=>b.onclick=()=>clearCollision(b.dataset.clear));
 }
 function renderAlerts(){renderCollisionControl();const el=$("alertsList");if(!S.alerts.length){el.className="list empty";el.textContent="No detection alerts yet.";return}el.className="list";el.innerHTML=S.alerts.map(a=>'<div class="alertItem"><div><strong>'+escapeHtml(a.label)+'</strong><div class="small">'+escapeHtml(a.camera)+' · '+Math.round(a.score*100)+'% confidence</div></div><span class="small">'+new Date(a.time).toLocaleTimeString()+'</span></div>').join("")}
-async function loadAI(){if(S.ai.loading||S.ai.session)return;S.ai.loading=true;$("loadAi").disabled=true;$("aiStatus").textContent="Loading YOLO11n engine…";$("aiStatus").className="aiStatus";try{const ort=await import("https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/+esm");S.ai.ort=ort;S.ai.session=await ort.InferenceSession.create(YOLO_MODEL,{executionProviders:["wasm"],graphOptimizationLevel:"all"});$("aiStatus").textContent="YOLO11 ONLINE · automatic detection enabled · ≥20% confidence";$("aiStatus").className="aiStatus ready";for(const id of S.cameras.keys())startAIForCamera(id)}catch(e){console.error("YOLO11 load",e);S.ai.session=null;$("aiStatus").textContent="YOLO11 load failed: "+(e.message||e);$("aiStatus").className="aiStatus error"}finally{S.ai.loading=false}}
-function letterbox(video,size=640){const vw=video.videoWidth||640,vh=video.videoHeight||360,scale=Math.min(size/vw,size/vh),nw=Math.max(1,Math.round(vw*scale)),nh=Math.max(1,Math.round(vh*scale));const canvas=document.createElement("canvas");canvas.width=size;canvas.height=size;const ctx=canvas.getContext("2d",{willReadFrequently:true});ctx.fillStyle="#000";ctx.fillRect(0,0,size,size);const dx=Math.floor((size-nw)/2),dy=Math.floor((size-nh)/2);ctx.drawImage(video,0,0,vw,vh,dx,dy,nw,nh);return{canvas,scale,dx,dy,vw,vh}}
-function tensorFromCanvas(canvas){const im=canvas.getContext("2d",{willReadFrequently:true}).getImageData(0,0,canvas.width,canvas.height).data;const area=canvas.width*canvas.height,chw=new Float32Array(area*3);for(let p=0;p<area;p++){chw[p]=im[p*4]/255;chw[area+p]=im[p*4+1]/255;chw[2*area+p]=im[p*4+2]/255}return new S.ai.ort.Tensor("float32",chw,[1,3,canvas.height,canvas.width])}
-function iou(a,b){const x1=Math.max(a.xmin,b.xmin),y1=Math.max(a.ymin,b.ymin),x2=Math.min(a.xmax,b.xmax),y2=Math.min(a.ymax,b.ymax),inter=Math.max(0,x2-x1)*Math.max(0,y2-y1),aa=Math.max(0,a.xmax-a.xmin)*Math.max(0,a.ymax-a.ymin),ab=Math.max(0,b.xmax-b.xmin)*Math.max(0,b.ymax-b.ymin);return inter/(aa+ab-inter||1)}
-function nms(dets,limit=.45){const out=[],sorted=[...dets].sort((a,b)=>b.score-a.score);while(sorted.length){const best=sorted.shift();out.push(best);for(let i=sorted.length-1;i>=0;i--)if(sorted[i].label===best.label&&iou(sorted[i].box,best.box)>limit)sorted.splice(i,1)}return out}
-function drawDetections(c,dets){
-const v=c.video,canvas=c.overlay;
-if(!v||!canvas)return;
-const w=v.videoWidth||640,h=v.videoHeight||360;
-if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h}
-const ctx=canvas.getContext("2d");
-ctx.clearRect(0,0,w,h);
-ctx.font="700 "+Math.max(14,Math.round(w/65))+"px Arial";
-
-const cars=dets.filter(d=>d.label==="car");
-if(!c.tracks)c.tracks=new Map();
-if(!c.nextTrackId)c.nextTrackId=1;
-if(!c.trackFrame)c.trackFrame=0;
-c.trackFrame++;
-
-const now=performance.now();
-const observations=cars.map(d=>{
-const b=d.box;
-return {...d,cx:(b.xmin+b.xmax)/2,cy:(b.ymin+b.ymax)/2,
-px:(b.xmin+b.xmax)/2,py:b.ymax,
-bw:Math.max(1,b.xmax-b.xmin),bh:Math.max(1,b.ymax-b.ymin)};
-});
-
-// Predict stored cars forward before matching. Every ID belongs to one persistent
-// car record and IDs are never recycled during this camera session.
-const predicted=[...c.tracks.values()].map(t=>{const dt=Math.max(.05,Math.min(.8,(now-(t.lastTime||now))/1000));return {...t,pcx:t.cx+(t.vx||0)*dt,pcy:t.cy+(t.vy||0)*dt,pbw:t.bw||Math.max(1,t.box.xmax-t.box.xmin),pbh:t.bh||Math.max(1,t.box.ymax-t.box.ymin)}});
-const candidates=[];
-for(const t of predicted)for(let i=0;i<observations.length;i++){const o=observations[i],dist=Math.hypot(o.cx-t.pcx,o.cy-t.pcy)/Math.max(w,h),pb={xmin:t.pcx-t.pbw/2,ymin:t.pcy-t.pbh/2,xmax:t.pcx+t.pbw/2,ymax:t.pcy+t.pbh/2},ov=iou(pb,o.box),sizeDiff=Math.abs(Math.log((o.bw*o.bh)/Math.max(1,t.pbw*t.pbh))),cost=dist*2.8+(1-ov)*.55+Math.min(1,sizeDiff)*.35,maxDist=Math.min(.22,Math.max(.07,.065+Math.hypot(t.vx||0,t.vy||0)/Math.max(w,h)*1.5));if(dist<maxDist&&(ov>.001||dist<.11))candidates.push({t,i,cost})}
-candidates.sort((a,b)=>a.cost-b.cost);const usedTracks=new Set(),usedObs=new Set(),updated=new Map();
-for(const m of candidates){if(usedTracks.has(m.t.id)||usedObs.has(m.i))continue;const o=observations[m.i],t=m.t,dt=Math.max(.05,Math.min(1,(now-(t.lastTime||now))/1000));updated.set(t.id,{...o,id:t.id,cx:o.cx,cy:o.cy,vx:(o.cx-t.cx)/dt,vy:(o.cy-t.cy)/dt,bw:o.bw,bh:o.bh,box:o.box,miss:0,age:(t.age||0)+1,lastTime:now,lastSeen:now,predicted:false,prevVx:t.vx||0,prevVy:t.vy||0,prevSpeed:Math.hypot(t.vx||0,t.vy||0)});usedTracks.add(t.id);usedObs.add(m.i)}
-// Keep cars in memory through longer detector dropouts/occlusion.
-for(const t of predicted)if(!usedTracks.has(t.id)){const miss=(t.miss||0)+1;if(miss<=60){const cx=t.pcx,cy=t.pcy,bw=t.pbw,bh=t.pbh;updated.set(t.id,{...t,cx,cy,box:{xmin:Math.max(0,cx-bw/2),ymin:Math.max(0,cy-bh/2),xmax:Math.min(w,cx+bw/2),ymax:Math.min(h,cy+bh/2)},bw,bh,miss,lastTime:now,predicted:true,vx:(t.vx||0)*.92,vy:(t.vy||0)*.92})}}
-for(let i=0;i<observations.length;i++)if(!usedObs.has(i)){const o=observations[i],id=c.nextTrackId++;updated.set(id,{...o,id,cx:o.cx,cy:o.cy,vx:0,vy:0,bw:o.bw,bh:o.bh,box:o.box,miss:0,age:1,lastTime:now,lastSeen:now,predicted:false,prevVx:0,prevVy:0,prevSpeed:0})}
-c.tracks=updated;
-
-// Draw boxes only. Trajectory lines are intentionally disabled.
-for(const t of c.tracks.values()){const b=t.box,x=b.xmin,y=b.ymin,bw=b.xmax-b.xmin,bh=b.ymax-b.ymin;ctx.strokeStyle=t.predicted?"#ffffff":"#ff0000";ctx.lineWidth=Math.max(2,Math.round(w/500));ctx.setLineDash(t.predicted?[8,6]:[]);ctx.strokeRect(x,y,bw,bh);ctx.setLineDash([]);const label="CAR #"+t.id+(t.predicted?" · TRACKING":"")+" "+Math.round((t.score||0)*100)+"%";const tw=ctx.measureText(label).width+12,th=24;ctx.fillStyle=t.predicted?"#ffffff":"#ff0000";ctx.fillRect(x,Math.max(0,y-th),tw,th);ctx.fillStyle=t.predicted?"#000000":"#ffffff";ctx.fillText(label,x+6,Math.max(17,y-6))}
-
-// Temporal accident reasoning: do not alert merely because boxes touch.
-// We combine persistent IDs, closing motion, sudden deceleration/direction change,
-// relative approach, proximity/overlap, and multi-frame persistence.
-if(!c.accidentPairs)c.accidentPairs=new Map();
-const tracks=[...c.tracks.values()].filter(t=>!t.predicted&&t.age>=2);
-const seenPairs=new Set();
-const nowMs=performance.now();
-const frameScale=Math.max(w,h);
-for(let i=0;i<tracks.length;i++)for(let j=i+1;j<tracks.length;j++){
-  const a=tracks[i],b=tracks[j];
-  const key=[Math.min(a.id,b.id),Math.max(a.id,b.id)].join(":");
-  seenPairs.add(key);
-  const ax=(a.box.xmin+a.box.xmax)/2, ay=(a.box.ymin+a.box.ymax)/2;
-  const bx=(b.box.xmin+b.box.xmax)/2, by=(b.box.ymin+b.box.ymax)/2;
-  const dx=bx-ax, dy=by-ay, dist=Math.hypot(dx,dy)||1;
-  const ux=dx/dist, uy=dy/dist;
-  const avx=a.vx||0, avy=a.vy||0, bvx=b.vx||0, bvy=b.vy||0;
-  const closing=((avx-bvx)*ux+(avy-bvy)*uy);
-  const aSpeed=Math.hypot(avx,avy), bSpeed=Math.hypot(bvx,bvy);
-  const aPrev=a.prevSpeed||aSpeed, bPrev=b.prevSpeed||bSpeed;
-  const decelA=Math.max(0,(aPrev-aSpeed)/Math.max(1,aPrev));
-  const decelB=Math.max(0,(bPrev-bSpeed)/Math.max(1,bPrev));
-  const accelA=Math.hypot((a.vx||0)-(a.prevVx||a.vx||0),(a.vy||0)-(a.prevVy||a.vy||0))/frameScale;
-  const accelB=Math.hypot((b.vx||0)-(b.prevVx||b.vx||0),(b.vy||0)-(b.prevVy||b.vy||0))/frameScale;
-  const xOverlap=Math.min(a.box.xmax,b.box.xmax)-Math.max(a.box.xmin,b.box.xmin);
-  const yOverlap=Math.min(a.box.ymax,b.box.ymax)-Math.max(a.box.ymin,b.box.ymin);
-  const overlapW=Math.max(0,xOverlap), overlapH=Math.max(0,yOverlap);
-  const inter=overlapW*overlapH;
-  const areaA=Math.max(1,a.bw*a.bh), areaB=Math.max(1,b.bw*b.bh);
-  const overlapRatio=inter/Math.min(areaA,areaB);
-  const edgeGapX=Math.max(0,Math.max(b.box.xmin-a.box.xmax,a.box.xmin-b.box.xmax));
-  const edgeGapY=Math.max(0,Math.max(b.box.ymin-a.box.ymax,a.box.ymin-b.box.ymax));
-  const gap=Math.hypot(edgeGapX,edgeGapY)/frameScale;
-  const proximity=Math.max(0,1-Math.min(1,gap/.10));
-  const closingScore=Math.max(0,Math.min(1,closing/(frameScale*.025)));
-  const impactMotion=Math.max(decelA,decelB,Math.min(1,accelA*8),Math.min(1,accelB*8));
-  const contactScore=Math.max(overlapRatio,proximity);
-  const pair=c.accidentPairs.get(key)||{streak:0,peak:0,lastContact:0};
-  const evidence=0.38*contactScore+0.28*closingScore+0.24*impactMotion+0.10*Math.max(decelA,decelB);
-  if(evidence>=.42) pair.streak++; else pair.streak=Math.max(0,pair.streak-1);
-  pair.peak=Math.max(pair.peak,evidence);
-  pair.lastContact=evidence;
-  c.accidentPairs.set(key,pair);
-  if(pair.streak>=3 && pair.peak>=.62){
-    reportCollision(c,key,Math.min(.99,pair.peak));
-    pair.streak=0;
-    pair.peak=0;
-  }
+async function checkVisionAgent(){
+try{
+const r=await fetch(S.accidentApi+"/health",{cache:"no-store"});
+const h=await r.json();
+S.ai.agentOnline=!!h.ok;
+$("aiStatus").textContent=h.ok?"VISION AGENT ONLINE · watching connected cameras":"VISION AGENT OFFLINE · start the accident AI server";
+$("aiStatus").className="aiStatus "+(h.ok?"ready":"error");
+$("toggleAi").disabled=!h.ok;
+return h.ok;
+}catch(e){
+S.ai.agentOnline=false;
+$("aiStatus").textContent="VISION AGENT OFFLINE · "+(e.message||"server unavailable");
+$("aiStatus").className="aiStatus error";
+$("toggleAi").disabled=true;
+return false;
+}}
+function captureAgentFrame(video){
+const w=Math.min(960,video.videoWidth||960),h=Math.max(1,Math.round(w*(video.videoHeight||540)/(video.videoWidth||960)));
+const canvas=document.createElement("canvas");canvas.width=w;canvas.height=h;
+canvas.getContext("2d",{alpha:false}).drawImage(video,0,0,w,h);
+return canvas.toDataURL("image/jpeg",0.72).split(",")[1];
 }
-for(const key of c.accidentPairs.keys())if(!seenPairs.has(key))c.accidentPairs.delete(key);
-}function decodeYOLO(output,meta){const data=output.data,dims=output.dims,channels=dims[1],count=dims[2],transposed=channels!==84,attrs=transposed?count:channels,n=transposed?channels:count;const get=(a,c)=>transposed?data[c*attrs+a]:data[a*n+c];const dets=[];for(let c=0;c<n;c++){let score=0,cls=-1;for(let a=4;a<attrs;a++){const v=get(a,c);if(v>score){score=v;cls=a-4}}if(score<YOLO_THRESHOLD||cls!==2)continue;const cx=get(0,c),cy=get(1,c),bw=get(2,c),bh=get(3,c);const box={xmin:Math.max(0,Math.min(meta.vw,(cx-bw/2-meta.dx)/meta.scale)),ymin:Math.max(0,Math.min(meta.vh,(cy-bh/2-meta.dy)/meta.scale)),xmax:Math.max(0,Math.min(meta.vw,(cx+bw/2-meta.dx)/meta.scale)),ymax:Math.max(0,Math.min(meta.vh,(cy+bh/2-meta.dy)/meta.scale))};if(box.xmax>box.xmin&&box.ymax>box.ymin)dets.push({score,label:COCO[cls]||("class "+cls),box})}return nms(dets,.70)}
-async function detectFrame(id){const c=S.cameras.get(id);if(!S.ai.running||!S.ai.session||!c)return;if(!c.video||c.video.readyState<2){scheduleDetect(id);return}try{const meta=letterbox(c.video),input=tensorFromCanvas(meta.canvas),feeds={};feeds[S.ai.session.inputNames[0]]=input;const result=await S.ai.session.run(feeds),output=result[S.ai.session.outputNames[0]];drawDetections(c,decodeYOLO(output,meta))}catch(e){console.warn("YOLO11 inference",e)}scheduleDetect(id)}
-function scheduleDetect(id){if(S.ai.running){clearTimeout(S.ai.timers.get(id));S.ai.timers.set(id,setTimeout(()=>detectFrame(id),250))}}
-function startAIForCamera(id){if(!S.ai.session||!S.cameras.has(id))return;startAccidentAIForCamera(id);S.ai.running=true;S.ai.cameras.set(id,true);$("aiStatus").textContent="YOLO11 ONLINE · detecting all connected cameras · ≥20% confidence";detectFrame(id)}
-function stopAIForCamera(id){stopAccidentAIForCamera(id);S.ai.cameras.delete(id);clearTimeout(S.ai.timers.get(id));S.ai.timers.delete(id);const c=S.cameras.get(id);if(c?.overlay){const ctx=c.overlay.getContext("2d");ctx.clearRect(0,0,c.overlay.width,c.overlay.height)}if(!S.ai.cameras.size)S.ai.running=false}
-function startAI(){for(const id of S.cameras.keys())startAIForCamera(id)}
-function stopAI(){S.ai.running=false;for(const id of [...S.ai.cameras.keys()])stopAIForCamera(id);$("aiStatus").textContent=S.ai.session?"YOLO11 ONLINE · automatic detection paused.":"AI engine not loaded."}
-async function connect(roomName,role){const L=LivekitClient;const source=tokenSource();if(S.room){try{await S.room.disconnect()}catch(e){}}S.room=new L.Room({adaptiveStream:true,dynacast:true});S.roomName=roomName;S.room.on(L.RoomEvent.TrackSubscribed,(track,publication,participant)=>{if(role!=="operator"||track.kind!=="video")return;const video=track.attach();video.autoplay=true;video.playsInline=true;const id=participant.identity;if(S.removedCameras.has(id)){track.detach();return}const name=participant?.name||participant?.identity||"Camera";cameraCard(id,name,video);if(S.ai.session)startAIForCamera(participant.identity);video.addEventListener("loadedmetadata",()=>startRecording(participant.identity),{once:true})});S.room.on(L.RoomEvent.TrackUnsubscribed,(track,publication,participant)=>{const id=participant?.identity;track.detach();if(id)removeCamera(id)});S.room.on(L.RoomEvent.DataReceived,(payload,participant)=>{
+async function sendVisionFrame(id){
+const c=S.cameras.get(id);
+if(!S.ai.running||!c||!c.video||c.video.readyState<2||S.ai.busy.get(id))return;
+S.ai.busy.set(id,true);
+try{
+const jpeg=captureAgentFrame(c.video);
+const r=await fetch(S.accidentApi+"/frame",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({camera_id:id,timestamp:Date.now()/1000,jpeg_base64:jpeg})});
+const data=await r.json();
+if(!r.ok)throw new Error(data.detail||"vision agent request failed");
+c.accidentStatus&&(c.accidentStatus.textContent=data.collision_visible?"ACCIDENT AI: COLLISION VISIBLE":"ACCIDENT AI: MONITORING");
+const count=Number(data.vehicle_count||0);
+$("aiStatus").textContent="VISION AGENT ONLINE · "+S.cameras.size+" camera(s) · "+count+" vehicle(s) in latest frame";
+if(data.accident)reportCollision(c,id,Number(data.confidence||0),data.reason||"Vision agent detected a collision");
+}catch(e){
+console.warn("vision agent",e);
+c.accidentStatus&&(c.accidentStatus.textContent="ACCIDENT AI: SERVER ERROR");
+}finally{S.ai.busy.set(id,false)}}
+function scheduleVision(id){
+if(!S.ai.running)return;
+clearTimeout(S.ai.timers.get(id));
+S.ai.timers.set(id,setTimeout(async()=>{await sendVisionFrame(id);scheduleVision(id)},100));
+}
+async function startAIForCamera(id){
+if(!S.cameras.has(id))return;
+S.ai.cameras.set(id,true);
+if(!S.ai.running)S.ai.running=true;
+scheduleVision(id);
+}
+function stopAIForCamera(id){
+S.ai.cameras.delete(id);clearTimeout(S.ai.timers.get(id));S.ai.timers.delete(id);S.ai.busy.delete(id);
+if(!S.ai.cameras.size)S.ai.running=false;
+}
+async function startAI(){
+if(!(await checkVisionAgent()))return;
+S.ai.running=true;
+for(const id of S.cameras.keys())startAIForCamera(id);
+$("toggleAi").textContent="PAUSE VISION AGENT";
+}
+function stopAI(){
+S.ai.running=false;
+for(const id of [...S.ai.cameras.keys()]){clearTimeout(S.ai.timers.get(id));S.ai.timers.delete(id);S.ai.busy.delete(id)}
+S.ai.cameras.clear();
+$("toggleAi").textContent="START VISION AGENT";
+$("aiStatus").textContent="VISION AGENT PAUSED.";
+}
+async function reportCollision(c,id,score,reason){
+const now=Date.now();
+const key=id+":"+Math.floor(now/3000);
+if(S.alertCooldown.get(key))return;
+S.alertCooldown.set(key,true);
+setTimeout(()=>S.alertCooldown.delete(key),3000);
+const incident={id:"vision-"+now+"-"+Math.random().toString(36).slice(2,7),camera:c?.name||id,score:Math.max(0,Math.min(1,score||0)),status:"ACTIVE",time:now,reason};
+S.collisions.set(incident.id,incident);
+S.alerts.unshift({label:"VEHICLE COLLISION",camera:incident.camera,score:incident.score,time:now});
+updateCounts();renderAlerts();unlockAlertAudio();playAlertTone();
+try{sendData({type:"collision:alert",camera:id,score:incident.score,reason:reason,time:now})}catch(e){}
+}async function connect(roomName,role){const L=LivekitClient;const source=tokenSource();if(S.room){try{await S.room.disconnect()}catch(e){}}S.room=new L.Room({adaptiveStream:true,dynacast:true});S.roomName=roomName;S.room.on(L.RoomEvent.TrackSubscribed,(track,publication,participant)=>{if(role!=="operator"||track.kind!=="video")return;const video=track.attach();video.autoplay=true;video.playsInline=true;const id=participant.identity;if(S.removedCameras.has(id)){track.detach();return}const name=participant?.name||participant?.identity||"Camera";cameraCard(id,name,video);if(S.ai.running)startAIForCamera(participant.identity);video.addEventListener("loadedmetadata",()=>startRecording(participant.identity),{once:true})});S.room.on(L.RoomEvent.TrackUnsubscribed,(track,publication,participant)=>{const id=participant?.identity;track.detach();if(id)removeCamera(id)});S.room.on(L.RoomEvent.DataReceived,(payload,participant)=>{
 let msg;try{msg=JSON.parse(new TextDecoder().decode(payload))}catch(e){return}
 if(msg.type==="camera:remove"&&role==="camera"&&msg.target===S.room?.localParticipant?.identity){
 for(const p of [...S.room.localParticipant.trackPublications.values()]){
@@ -232,11 +210,11 @@ if(pub?.track&&S.room?.localParticipant?.unpublishTrack)return S.room.localParti
 function startGps(){if(!navigator.geolocation){$("cameraMsg").textContent="This browser does not provide GPS.";return}const publish=pos=>{const lat=pos.coords.latitude,lon=pos.coords.longitude;sendData({type:"gps",lat,lon,accuracy:pos.coords.accuracy||null,id:S.room?.localParticipant?.identity});$("cameraMsg").textContent="Camera LIVE · GPS "+lat.toFixed(5)+", "+lon.toFixed(5)};S.watchId=navigator.geolocation.watchPosition(publish,e=>{$("cameraMsg").textContent="Camera LIVE · GPS unavailable ("+e.message+")"},{enableHighAccuracy:true,maximumAge:5000,timeout:15000})}
 document.querySelectorAll(".nav").forEach(b=>b.onclick=()=>showView(b.dataset.view));
 try{setAccidentApi(localStorage.getItem("cordds_accident_api")||"http://127.0.0.1:8000")}catch(e){setAccidentApi("http://127.0.0.1:8000")}
-$("operatorBtn").onclick=async()=>{try{unlockAlertAudio();const n=$("room").value.trim()||("cb-"+Math.random().toString(36).slice(2,7));$("room").value=n;await connect(n,"operator");showApp("operator");initMap();showView("cameras");loadAI()}catch(e){$("gateMsg").textContent="Operator connection error: "+(e.message||e);setStatus("ERROR");console.error(e)}};
+$("operatorBtn").onclick=async()=>{try{unlockAlertAudio();const n=$("room").value.trim()||("cb-"+Math.random().toString(36).slice(2,7));$("room").value=n;await connect(n,"operator");showApp("operator");initMap();showView("cameras");startAI()}catch(e){$("gateMsg").textContent="Operator connection error: "+(e.message||e);setStatus("ERROR");console.error(e)}};
 $("createRoom").onclick=async()=>{try{unlockAlertAudio();localStorage.setItem("cordds_room",$("room").value.trim());const n=$("room").value.trim()||("cb-"+Math.random().toString(36).slice(2,7));$("room").value=n;await connect(n,"operator");showApp("operator");if(window.CORDDS_VIEW_ROLE==="legal")setStatus("LEGAL ONLINE");initMap();showView("cameras");loadAI()}catch(e){$("roomState").textContent="ERROR: "+(e.message||e);setStatus("ERROR");console.error(e)}};
 $("cameraBtn").onclick=()=>showApp("camera");
 $("startCamera").onclick=async()=>{const n=$("cameraRoom").value.trim();if(!n){$("cameraMsg").textContent="Enter the operator room ID.";return}let stream;try{$("cameraMsg").textContent="Requesting camera permission…";stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:720}},audio:false});$("localVideo").srcObject=stream;$("cameraMsg").textContent="Camera granted. Connecting…";await connect(n,"camera");sendData({type:"camera:hello",name:"Camera",id:S.room.localParticipant.identity});const video=stream.getVideoTracks()[0];if(!video)throw Error("No camera video track was available.");const track=new LivekitClient.LocalVideoTrack(video);await S.room.localParticipant.publishTrack(track,{name:"security-camera"});$("cameraMsg").textContent="Camera is LIVE. Keep this page open."}catch(e){if(stream)stream.getTracks().forEach(t=>t.stop());$("cameraMsg").textContent="Camera error: "+(e.message||e.name);setStatus("ERROR");console.error(e)}};
-$("loadAi").onclick=loadAI;$("toggleAi").onclick=()=>S.ai.running?stopAI():startAI();$("aiCamera").onchange=()=>{};
+$("loadAi").onclick=checkVisionAgent;$("toggleAi").onclick=()=>S.ai.running?stopAI():startAI();$("aiCamera").onchange=()=>{};
 $("clearAlerts").onclick=()=>{S.alerts=[];updateCounts();renderAlerts()};$("deleteAllRecordings").onclick=async()=>{if(!confirm("Delete all saved recordings from this browser?"))return;const db=await openDb();await new Promise((res,rej)=>{const tx=db.transaction("segments","readwrite");tx.objectStore("segments").clear();tx.oncomplete=res;tx.onerror=()=>rej(tx.error)});refreshStorage()};
 $("leave").onclick=async()=>{try{S.collisions.clear();S.removedCameras.clear();stopAI();if(S.watchId!=null)navigator.geolocation.clearWatch(S.watchId);for(const c of S.cameras.values()){if(c.recordTimer)clearTimeout(c.recordTimer);if(c.recorder?.state==="recording")c.recorder.stop()}if(S.room)await S.room.disconnect()}catch(e){}location.reload()};
 })();

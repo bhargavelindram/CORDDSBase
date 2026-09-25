@@ -37,3 +37,5 @@ aside h2{font-size:15px;letter-spacing:2px;margin:0 8px 25px}
 .aiStatus{margin-top:15px;padding:12px;border:1px solid #292929;border-radius:7px;color:#aaa}.aiStatus.ready{color:#7f7}.aiStatus.error{color:#f66}
 .aiGrid{display:grid;grid-template-columns:1fr 220px;gap:15px;margin-top:15px}.setting{display:flex;justify-content:space-between;border-bottom:1px solid #252525;padding:15px 0}.setting:last-child{border-bottom:0}
 @media(max-width:700px){#app{grid-template-columns:1fr}aside{min-height:auto;flex-direction:row;overflow:auto;align-items:center}aside h2{display:none}.danger{margin-top:0!important}.content{padding:15px}.row{flex-direction:column;align-items:stretch}.actions{flex-direction:column}.sectionHead{flex-direction:column}.aiGrid{grid-template-columns:1fr}#map{height:420px}}
+
+.collisionOps{margin-top:15px;display:grid;gap:9px}.collisionOps.empty{color:#777;padding:12px 0}.collisionIncident{border:1px solid #5a2020;background:#120808;border-radius:8px;padding:12px;display:flex;justify-content:space-between;gap:12px;align-items:center}.collisionIncident strong{color:#ff3333}.alertHead{margin-top:20px}

@@ -2,7 +2,7 @@
 const $=id=>document.getElementById(id);
 const DEFAULT_TOKEN="corddsbase-vzgr9t";
 const SEGMENT_MS=120000;
-const S={room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),collisions:new Map(),removedCameras:new Set(),ai:{running:false,cameras:new Map(),timers:new Map(),busy:new Map(),frames:new Map(),agentOnline:false},map:null,watchId:null,db:null,audioCtx:null,accidentApi:"http://127.0.0.1:8000",face:{detector:null,loading:false}};
+const S={room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),collisions:new Map(),removedCameras:new Set(),ai:{running:false,cameras:new Map(),timers:new Map(),busy:new Map(),frames:new Map(),agentOnline:false,motion:new Map(),lastInference:new Map()},map:null,watchId:null,db:null,audioCtx:null,accidentApi:"http://127.0.0.1:8000",face:{detector:null,loading:false}};
 function localAgentFetch(url,options={}){const opts={...options};if("targetAddressSpace" in Request.prototype)opts.targetAddressSpace="loopback";return fetch(url,opts)}
 async function loopbackPermission(){try{if(navigator.permissions?.query){const p=await navigator.permissions.query({name:"loopback-network"});return p.state}}catch(e){}return "unknown"}
 const COCO=["person","bicycle","car","motorcycle","airplane","bus","train","truck","boat","traffic light","fire hydrant","stop sign","parking meter","bench","bird","cat","dog","horse","sheep","cow","elephant","bear","zebra","giraffe","backpack","umbrella","handbag","tie","suitcase","frisbee","skis","snowboard","sports ball","kite","baseball bat","baseball glove","skateboard","surfboard","tennis racket","bottle","wine glass","cup","fork","knife","spoon","bowl","banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake","chair","couch","potted plant","bed","dining table","toilet","tv","laptop","mouse","remote","keyboard","cell phone","microwave","oven","toaster","sink","refrigerator","book","clock","vase","scissors","teddy bear","hair drier","toothbrush"];
@@ -120,9 +120,30 @@ const canvas=document.createElement("canvas");canvas.width=w;canvas.height=h;
 canvas.getContext("2d",{alpha:false}).drawImage(video,0,0,w,h);
 return canvas.toDataURL("image/jpeg",0.60).split(",")[1];
 }
+function motionGate(video,id){
+  const w=96,h=54;
+  let m=S.ai.motion.get(id);
+  if(!m){m={canvas:document.createElement("canvas"),ctx:null,prev:null,lastChange:0};m.canvas.width=w;m.canvas.height=h;m.ctx=m.canvas.getContext("2d",{willReadFrequently:true});S.ai.motion.set(id,m)}
+  m.ctx.drawImage(video,0,0,w,h);
+  const p=m.ctx.getImageData(0,0,w,h).data;
+  if(!m.prev){m.prev=new Uint8ClampedArray(p);return false}
+  let changed=0,total=0;
+  for(let i=0;i<p.length;i+=16){total++;const d=Math.abs(p[i]-m.prev[i])+Math.abs(p[i+1]-m.prev[i+1])+Math.abs(p[i+2]-m.prev[i+2]);if(d>45)changed++}
+  m.prev.set(p);
+  const ratio=changed/Math.max(1,total);
+  if(ratio>.025){m.lastChange=Date.now();return true}
+  return Date.now()-m.lastChange<4000;
+}
 async function sendVisionFrame(id){
 const c=S.cameras.get(id);
 if(!S.ai.running||!c||!c.video||c.video.readyState<2||S.ai.busy.get(id))return;
+if(!motionGate(c.video,id)){
+  c.accidentStatus&&(c.accidentStatus.textContent="ACCIDENT AI: MONITORING · motion gate");
+  return;
+}
+const last=S.ai.lastInference.get(id)||0;
+if(Date.now()-last<45000)return;
+S.ai.lastInference.set(id,Date.now());
 S.ai.busy.set(id,true);
 try{
 const jpeg=captureAgentFrame(c.video);
@@ -141,7 +162,7 @@ $("aiStatus").textContent="VISION AGENT ONLINE · waiting for local Ollama respo
 function scheduleVision(id){
 if(!S.ai.running)return;
 clearTimeout(S.ai.timers.get(id));
-S.ai.timers.set(id,setTimeout(async()=>{await sendVisionFrame(id);scheduleVision(id)},1500));
+S.ai.timers.set(id,setTimeout(async()=>{await sendVisionFrame(id);scheduleVision(id)},500));
 }
 async function startAIForCamera(id){
 if(!S.cameras.has(id))return;

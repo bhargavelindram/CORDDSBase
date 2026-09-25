@@ -16,6 +16,7 @@ WINDOW_FRAMES=1
 INPUT_FPS=30
 ALERT_COOLDOWN=0.0
 VLM_URL=os.getenv("VLM_URL","http://127.0.0.1:30000/v1/chat/completions")
+VLM_API_KEY=os.getenv("VLM_API_KEY","").strip()
 VLM_MODEL=os.getenv("VLM_MODEL","Qwen/Qwen3-VL-8B-Instruct")
 VLM_ENABLED=os.getenv("VLM_ENABLED","true").lower()=="true"
 VLM_MIN_CONFIDENCE=float(os.getenv("VLM_MIN_CONFIDENCE","0.20"))
@@ -112,7 +113,8 @@ def ask_vlm(items):
             "physical contact, set accident=true. Otherwise set accident=false. "
             "Return ONLY JSON: {\"accident\":true/false,\"confidence\":0 to 1,\"reason\":\"short\"}.")
     payload={"model":VLM_MODEL,"messages":[{"role":"user","content":[{"type":"text","text":prompt},image]}],"temperature":0,"max_tokens":120}
-    r=requests.post(VLM_URL,json=payload,timeout=20)
+    headers={"Authorization":"Bearer "+VLM_API_KEY} if VLM_API_KEY else {}
+    r=requests.post(VLM_URL,json=payload,headers=headers,timeout=30)
     r.raise_for_status()
     return parse_vlm(r.json()["choices"][0]["message"]["content"])
 
@@ -135,7 +137,7 @@ def run_vlm_window(camera_id,items):
 
 @app.get("/health")
 def health():
-    return {"ok":True,"detector":"YOLO11x","tracker":"BoT-SORT","window":"single frame / immediate Qwen review","input_rate":"camera-rate (best effort)","final_judge":VLM_MODEL,"vlm_enabled":VLM_ENABLED}
+    return {"ok":True,"detector":"YOLO11x","tracker":"BoT-SORT","window":"single frame / immediate Qwen review","input_rate":"camera-rate (best effort)","final_judge":VLM_MODEL,"vlm_enabled":VLM_ENABLED,"vlm_endpoint_configured":bool(VLM_URL),"vlm_auth_configured":bool(VLM_API_KEY)}
 
 @app.post("/frame")
 def frame(f:Frame):

@@ -76,6 +76,7 @@ const now=performance.now();
 const observations=cars.map(d=>{
 const b=d.box;
 return {...d,cx:(b.xmin+b.xmax)/2,cy:(b.ymin+b.ymax)/2,
+px:(b.xmin+b.xmax)/2,py:b.ymax,
 bw:Math.max(1,b.xmax-b.xmin),bh:Math.max(1,b.ymax-b.ymin)};
 });
 
@@ -113,7 +114,7 @@ if(usedTracks.has(m.t.id)||usedObs.has(m.i))continue;
 const o=observations[m.i],t=m.t;
 const dt=Math.max(.05,Math.min(1.0,(now-(t.lastTime||now))/1000));
 const vx=(o.cx-t.cx)/dt,vy=(o.cy-t.cy)/dt;
-const trail=(t.trail||[]).concat([[o.cx,o.cy]]).slice(-30);
+const trail=(t.trail||[]).concat([[o.px,o.py]]).slice(-30);
 updated.set(t.id,{...o,id:t.id,cx:o.cx,cy:o.cy,vx,vy,bw:o.bw,bh:o.bh,
 box:o.box,trail,miss:0,age:(t.age||0)+1,lastTime:now,lastSeen:now});
 usedTracks.add(t.id);usedObs.add(m.i);
@@ -130,7 +131,7 @@ const bw=t.pbw,bh=t.pbh;
 const box={xmin:Math.max(0,cx-bw/2),ymin:Math.max(0,cy-bh/2),
 xmax:Math.min(w,cx+bw/2),ymax:Math.min(h,cy+bh/2)};
 updated.set(t.id,{...t,cx,cy,box,bw,bh,miss,lastTime:now,predicted:true,
-trail:(t.trail||[]).concat([[cx,cy]]).slice(-30),vx:(t.vx||0)*.90,vy:(t.vy||0)*.90});
+trail:(t.trail||[]).concat([[cx,cy+(t.bh||0)/2]]).slice(-30),vx:(t.vx||0)*.90,vy:(t.vy||0)*.90});
 }
 }
 
@@ -139,7 +140,7 @@ for(let i=0;i<observations.length;i++){
 if(usedObs.has(i))continue;
 const o=observations[i],id=c.nextTrackId++;
 updated.set(id,{...o,id,cx:o.cx,cy:o.cy,vx:0,vy:0,bw:o.bw,bh:o.bh,
-trail:[[o.cx,o.cy]],miss:0,age:1,lastTime:now,lastSeen:now,predicted:false});
+trail:[[o.px,o.py]],miss:0,age:1,lastTime:now,lastSeen:now,predicted:false});
 }
 c.tracks=updated;
 

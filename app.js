@@ -64,43 +64,87 @@ const w=v.videoWidth||640,h=v.videoHeight||360;
 if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h}
 const ctx=canvas.getContext("2d");
 ctx.clearRect(0,0,w,h);
-ctx.lineWidth=Math.max(2,Math.round(w/500));
 ctx.font="700 "+Math.max(14,Math.round(w/65))+"px Arial";
 
 const cars=dets.filter(d=>d.label==="car");
 if(!c.tracks)c.tracks=new Map();
 if(!c.nextTrackId)c.nextTrackId=1;
+if(!c.trackFrame)c.trackFrame=0;
+c.trackFrame++;
 
+const now=performance.now();
 const observations=cars.map(d=>{
 const b=d.box;
-return {...d,cx:(b.xmin+b.xmax)/2,cy:(b.ymin+b.ymax)/2};
+return {...d,cx:(b.xmin+b.xmax)/2,cy:(b.ymin+b.ymax)/2,
+bw:Math.max(1,b.xmax-b.xmin),bh:Math.max(1,b.ymax-b.ymin)};
 });
-const used=new Set();
-const updated=new Map();
 
-for(const [id,t] of c.tracks){
-let best=null,bestDist=Infinity;
+// Predict old tracks forward before matching. Tracks survive short detection dropouts,
+// so a temporary YOLO miss does not create a new CAR #.
+const predicted=[...c.tracks.values()].map(t=>{
+const dt=Math.max(.05,Math.min(.8,(now-(t.lastTime||now))/1000));
+return {...t,
+pcx:t.cx+(t.vx||0)*dt,
+pcy:t.cy+(t.vy||0)*dt,
+pbw:t.bw||Math.max(1,t.box.xmax-t.box.xmin),
+pbh:t.bh||Math.max(1,t.box.ymax-t.box.ymin)};
+});
+
+// Global greedy association using predicted position + box overlap + size.
+// This is much more stable than rebuilding the track map every frame.
+const candidates=[];
+for(const t of predicted){
 for(let i=0;i<observations.length;i++){
-if(used.has(i))continue;
 const o=observations[i];
-const dist=Math.hypot(o.cx-t.cx,o.cy-t.cy)/Math.max(w,h);
-if(dist<bestDist)bestDist=dist,best=i;
-}
-if(best!==null&&bestDist<0.12){
-const o=observations[best];
-used.add(best);
-const vx=o.cx-t.cx,vy=o.cy-t.cy;
-const trail=(t.trail||[]).concat([[o.cx,o.cy]]).slice(-20);
-updated.set(id,{...o,id,cx:o.cx,cy:o.cy,vx,vy,trail,miss:0,age:(t.age||0)+1});
+const dist=Math.hypot(o.cx-t.pcx,o.cy-t.pcy)/Math.max(w,h);
+const pb={xmin:t.pcx-t.pbw/2,ymin:t.pcy-t.pbh/2,xmax:t.pcx+t.pbw/2,ymax:t.pcy+t.pbh/2};
+const ov=iou(pb,o.box);
+const sizeDiff=Math.abs(Math.log((o.bw*o.bh)/Math.max(1,t.pbw*t.pbh)));
+const cost=dist*2.2+(1-ov)*0.9+Math.min(1,sizeDiff)*0.25;
+const maxDist=Math.min(.30,Math.max(.12,0.10+Math.hypot(t.vx||0,t.vy||0)/Math.max(w,h)*2));
+if(dist<maxDist&&(ov>0.005||dist<.15))candidates.push({t,i,cost,dist});
 }
 }
+candidates.sort((a,b)=>a.cost-b.cost);
+const usedTracks=new Set(),usedObs=new Set(),updated=new Map();
+
+for(const m of candidates){
+if(usedTracks.has(m.t.id)||usedObs.has(m.i))continue;
+const o=observations[m.i],t=m.t;
+const dt=Math.max(.05,Math.min(1.0,(now-(t.lastTime||now))/1000));
+const vx=(o.cx-t.cx)/dt,vy=(o.cy-t.cy)/dt;
+const trail=(t.trail||[]).concat([[o.cx,o.cy]]).slice(-30);
+updated.set(t.id,{...o,id:t.id,cx:o.cx,cy:o.cy,vx,vy,bw:o.bw,bh:o.bh,
+box:o.box,trail,miss:0,age:(t.age||0)+1,lastTime:now,lastSeen:now});
+usedTracks.add(t.id);usedObs.add(m.i);
+}
+
+// Keep old IDs alive through short detector dropouts/occlusion.
+for(const t of predicted){
+if(usedTracks.has(t.id))continue;
+const miss=(t.miss||0)+1;
+if(miss<=8){
+const dt=Math.max(.05,Math.min(.8,(now-(t.lastTime||now))/1000));
+const cx=t.pcx,cy=t.pcy;
+const bw=t.pbw,bh=t.pbh;
+const box={xmin:Math.max(0,cx-bw/2),ymin:Math.max(0,cy-bh/2),
+xmax:Math.min(w,cx+bw/2),ymax:Math.min(h,cy+bh/2)};
+updated.set(t.id,{...t,cx,cy,box,bw,bh,miss,lastTime:now,predicted:true,
+trail:(t.trail||[]).concat([[cx,cy]]).slice(-30),vx:(t.vx||0)*.90,vy:(t.vy||0)*.90});
+}
+}
+
+// New detections get a new ID only when no existing track can reasonably explain them.
 for(let i=0;i<observations.length;i++){
-if(used.has(i))continue;
+if(usedObs.has(i))continue;
 const o=observations[i],id=c.nextTrackId++;
-updated.set(id,{...o,id,cx:o.cx,cy:o.cy,vx:0,vy:0,trail:[[o.cx,o.cy]],miss:0,age:1});
+updated.set(id,{...o,id,cx:o.cx,cy:o.cy,vx:0,vy:0,bw:o.bw,bh:o.bh,
+trail:[[o.cx,o.cy]],miss:0,age:1,lastTime:now,lastSeen:now,predicted:false});
 }
 c.tracks=updated;
 
+// Draw every surviving track. Predicted frames use a thinner dashed outline,
+// but the numeric ID remains unchanged.
 for(const t of c.tracks.values()){
 if(t.trail.length>1){
 ctx.beginPath();
@@ -110,32 +154,34 @@ ctx.moveTo(t.trail[0][0],t.trail[0][1]);
 for(let i=1;i<t.trail.length;i++)ctx.lineTo(t.trail[i][0],t.trail[i][1]);
 ctx.stroke();
 }
-const b=t.box;
-const x=b.xmin,y=b.ymin,bw=b.xmax-b.xmin,bh=b.ymax-b.ymin;
-ctx.strokeStyle="#ff0000";
+const b=t.box,x=b.xmin,y=b.ymin,bw=b.xmax-b.xmin,bh=b.ymax-b.ymin;
+ctx.strokeStyle=t.predicted?"#ffffff":"#ff0000";
 ctx.lineWidth=Math.max(2,Math.round(w/500));
-ctx.strokeRect(x,y,bw,bh);
-const label="CAR #"+t.id+" "+Math.round(t.score*100)+"%";
+if(t.predicted)ctx.setLineDash([8,6]);else ctx.setLineDash([]);
+ctx.strokeRect(x,y,bw,bh);ctx.setLineDash([]);
+const label="CAR #"+t.id+(t.predicted?" · TRACKING":"")+" "+Math.round((t.score||0)*100)+"%";
 const tw=ctx.measureText(label).width+12,th=24;
-ctx.fillStyle="#ff0000";
+ctx.fillStyle=t.predicted?"#ffffff":"#ff0000";
 ctx.fillRect(x,Math.max(0,y-th),tw,th);
-ctx.fillStyle="#ffffff";
+ctx.fillStyle=t.predicted?"#000000":"#ffffff";
 ctx.fillText(label,x+6,Math.max(17,y-6));
 }
 
-const tracks=[...c.tracks.values()];
+// Collision logic uses only confirmed visible tracks. Persistent IDs now remain
+// stable across short YOLO misses and movement.
+const tracks=[...c.tracks.values()].filter(t=>!t.predicted&&t.age>=2);
 if(!c.collisionPairs)c.collisionPairs=new Map();
 const seenPairs=new Set();
 
 for(let i=0;i<tracks.length;i++)for(let j=i+1;j<tracks.length;j++){
 const a=tracks[i],b=tracks[j];
-if(a.age<2||b.age<2)continue;
 const key=[Math.min(a.id,b.id),Math.max(a.id,b.id)].join(":");
 seenPairs.add(key);
 
 const centerDistance=Math.hypot(a.cx-b.cx,a.cy-b.cy)/Math.max(w,h);
-const relativeVx=a.vx-b.vx,relativeVy=a.vy-b.vy;
-const closing=relativeVx*(a.cx-b.cx)+relativeVy*(a.cy-b.cy)<0;
+const relativeVx=(a.vx||0)-(b.vx||0),relativeVy=(a.vy||0)-(b.vy||0);
+const dx=a.cx-b.cx,dy=a.cy-b.cy;
+const closing=relativeVx*dx+relativeVy*dy<0;
 
 const overlap=iou(a.box,b.box);
 const aw=Math.max(1,a.box.xmax-a.box.xmin),bw=Math.max(1,b.box.xmax-b.box.xmin);
@@ -147,13 +193,13 @@ const intersection=Math.max(0,x2-x1)*Math.max(0,y2-y1);
 const penetration=intersection/smaller;
 
 const prev=c.collisionPairs.get(key);
-const contact=overlap>0.08&&penetration>0.18&&centerDistance<0.16&&closing;
+const contact=overlap>0.05&&penetration>0.10&&centerDistance<0.20&&closing;
 const streak=contact?(prev?.streak||0)+1:0;
 c.collisionPairs.set(key,{streak,centerDistance,overlap,penetration});
 
 if(streak>=2){
-reportCollision(c,key,Math.max(a.score,b.score));
-ctx.strokeStyle="#ffffff";
+reportCollision(c,key,Math.max(a.score||0,b.score||0));
+ctx.strokeStyle="#ffffff";ctx.setLineDash([]);
 ctx.lineWidth=Math.max(5,Math.round(w/220));
 const x=Math.min(a.box.xmin,b.box.xmin),y=Math.min(a.box.ymin,b.box.ymin);
 const x3=Math.max(a.box.xmax,b.box.xmax),y3=Math.max(a.box.ymax,b.box.ymax);
@@ -164,7 +210,7 @@ for(const key of c.collisionPairs.keys())if(!seenPairs.has(key))c.collisionPairs
 }
 function decodeYOLO(output,meta){const data=output.data,dims=output.dims,channels=dims[1],count=dims[2],transposed=channels!==84,attrs=transposed?count:channels,n=transposed?channels:count;const get=(a,c)=>transposed?data[c*attrs+a]:data[a*n+c];const dets=[];for(let c=0;c<n;c++){let score=0,cls=-1;for(let a=4;a<attrs;a++){const v=get(a,c);if(v>score){score=v;cls=a-4}}if(score<YOLO_THRESHOLD||cls!==2)continue;const cx=get(0,c),cy=get(1,c),bw=get(2,c),bh=get(3,c);const box={xmin:Math.max(0,Math.min(meta.vw,(cx-bw/2-meta.dx)/meta.scale)),ymin:Math.max(0,Math.min(meta.vh,(cy-bh/2-meta.dy)/meta.scale)),xmax:Math.max(0,Math.min(meta.vw,(cx+bw/2-meta.dx)/meta.scale)),ymax:Math.max(0,Math.min(meta.vh,(cy+bh/2-meta.dy)/meta.scale))};if(box.xmax>box.xmin&&box.ymax>box.ymin)dets.push({score,label:COCO[cls]||("class "+cls),box})}return nms(dets)}
 async function detectFrame(id){const c=S.cameras.get(id);if(!S.ai.running||!S.ai.session||!c)return;if(!c.video||c.video.readyState<2){scheduleDetect(id);return}try{const meta=letterbox(c.video),input=tensorFromCanvas(meta.canvas),feeds={};feeds[S.ai.session.inputNames[0]]=input;const result=await S.ai.session.run(feeds),output=result[S.ai.session.outputNames[0]];drawDetections(c,decodeYOLO(output,meta))}catch(e){console.warn("YOLO11 inference",e)}scheduleDetect(id)}
-function scheduleDetect(id){if(S.ai.running){clearTimeout(S.ai.timers.get(id));S.ai.timers.set(id,setTimeout(()=>detectFrame(id),700))}}
+function scheduleDetect(id){if(S.ai.running){clearTimeout(S.ai.timers.get(id));S.ai.timers.set(id,setTimeout(()=>detectFrame(id),250))}}
 function startAIForCamera(id){if(!S.ai.session||!S.cameras.has(id))return;S.ai.running=true;S.ai.cameras.set(id,true);$("aiStatus").textContent="YOLO11 ONLINE · detecting all connected cameras · ≥20% confidence";detectFrame(id)}
 function stopAIForCamera(id){S.ai.cameras.delete(id);clearTimeout(S.ai.timers.get(id));S.ai.timers.delete(id);const c=S.cameras.get(id);if(c?.overlay){const ctx=c.overlay.getContext("2d");ctx.clearRect(0,0,c.overlay.width,c.overlay.height)}if(!S.ai.cameras.size)S.ai.running=false}
 function startAI(){for(const id of S.cameras.keys())startAIForCamera(id)}

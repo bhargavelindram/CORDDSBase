@@ -11,9 +11,9 @@ app = FastAPI(title="CORDDSBase YOLO11x Temporal Accident AI")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 
 MODEL_PATH=os.getenv("YOLO_MODEL","yolo11x.pt")
-FRAME_SIZE=int(os.getenv("YOLO_SIZE","1280"))
+FRAME_SIZE=int(os.getenv("YOLO_SIZE","640"))
 WINDOW_FRAMES=40
-INPUT_FPS=8
+INPUT_FPS=15
 ALERT_COOLDOWN=6.0
 model=YOLO(MODEL_PATH)
 history:Dict[str,deque]=defaultdict(lambda:deque(maxlen=WINDOW_FRAMES))
@@ -42,6 +42,28 @@ def spike(values):
     med=float(np.median(base));mad=float(np.median(np.abs(base-med)))+1e-5
     return max(0.0,min(1.0,float((values[-1]-med)/(6.0*1.4826*mad))))
 
+TOUCH_PX=int(os.getenv("TOUCH_PX","8"))
+
+# Crash = detected car boxes touching at an edge or within a tiny gap.
+# Positive rectangle overlap is explicitly NOT a crash.
+def edge_touch(a,b):
+    ax1,ay1,ax2,ay2=a;bx1,by1,bx2,by2=b
+    x_overlap=min(ax2,bx2)-max(ax1,bx1)
+    y_overlap=min(ay2,by2)-max(ay1,by1)
+    gap_x=max(0.0,max(bx1-ax2,ax1-bx2))
+    gap_y=max(0.0,max(by1-ay2,ay1-by2))
+    horizontal=gap_x<=TOUCH_PX and y_overlap>0 and x_overlap<=0
+    vertical=gap_y<=TOUCH_PX and x_overlap>0 and y_overlap<=0
+    return horizontal or vertical
+
+def current_edge_collision(tracks):
+    cars=[t for t in tracks if t["class"]==2]
+    for i,a in enumerate(cars):
+        for b in cars[i+1:]:
+            if edge_touch(a["box"],b["box"]):
+                return True, "CAR #{} + CAR #{}".format(a["id"],b["id"])
+    return False,None
+
 def anchor(box):
     x1,y1,x2,y2=box
     return ((x1+x2)*0.5,y2)
@@ -52,53 +74,10 @@ def anchor_distance(a,b):
 
 def score_window(cam):
     items=list(cam)
-    if len(items)<12:return 0.0,"warming up",None
-
-    motion_spike=spike([x["motion"] for x in items])
-    flow_spike=spike([x["flow"] for x in items])
-
-    # Bounding-box overlap is deliberately NOT treated as physical contact.
-    # Perspective can make two separate cars overlap in image space.
-    # Instead, use bottom-center ground-contact proxies plus closing motion.
-    pair_best=0.0;pair_name=None
-    pair_details={}
-
-    for item in items[-20:]:
-        cars=[t for t in item["tracks"] if t["class"]==2]
-        for i,a in enumerate(cars):
-            for b in cars[i+1:]:
-                key=tuple(sorted((a["id"],b["id"])))
-                scale=max(1.0,min(
-                    a["box"][2]-a["box"][0], a["box"][3]-a["box"][1],
-                    b["box"][2]-b["box"][0], b["box"][3]-b["box"][1]
-                ))
-                d=anchor_distance(a["box"],b["box"])
-                proximity=max(0.0,min(1.0,1.0-d/(0.42*scale)))
-                detail=pair_details.setdefault(key,{"latest":d,"prev":None,"min_proximity":0.0,"closing":0.0})
-                if detail["prev"] is not None:
-                    closing=max(0.0,(detail["prev"]-d)/(0.16*scale))
-                    detail["closing"]=max(detail["closing"],min(1.0,closing))
-                detail["prev"]=d
-                detail["latest"]=d
-                detail["min_proximity"]=max(detail["min_proximity"],proximity)
-
-    for key,detail in pair_details.items():
-        # Require BOTH close ground-contact points and meaningful closing motion.
-        # A stationary projected overlap therefore cannot trigger a crash.
-        event=min(detail["min_proximity"],detail["closing"])
-        if event>pair_best:
-            pair_best=event
-            pair_name=f"CAR #{key[0]} + CAR #{key[1]}"
-
-    confidence=min(0.99,0.35*motion_spike+0.25*flow_spike+0.40*pair_best)
-    reason=f"5-second/40-frame window; motion spike {motion_spike:.2f}; optical-flow spike {flow_spike:.2f}"
-    if pair_name:
-        d=pair_details[tuple(sorted(map(int,pair_name.replace("CAR #","").replace(" + CAR #"," ").split())))]
-        reason+=f"; ground-contact pair {pair_name} proximity {d['min_proximity']:.2f}; closing {d['closing']:.2f}"
-    else:
-        reason+="; no physical-contact motion pattern"
-
-    return confidence,reason,pair_name
+    if not items: return 0.0,"waiting",None
+    hit,pair=current_edge_collision(items[-1]["tracks"])
+    if hit: return 0.99,"car box edges touching",pair
+    return 0.0,"no edge contact",None
 
 @app.get("/health")
 def health():
@@ -112,7 +91,7 @@ def frame(f:Frame):
         if image is None:raise ValueError("invalid JPEG")
     except Exception as e:
         raise HTTPException(400,"Invalid frame: "+str(e))
-    result=model.track(image,persist=True,tracker="botsort.yaml",classes=[2,3,5,7],conf=0.20,imgsz=FRAME_SIZE,verbose=False)[0]
+    result=model.track(image,persist=True,tracker="botsort.yaml",classes=[2,3,5,7],conf=0.20,imgsz=FRAME_SIZE,max_det=30,verbose=False)[0]
     tracks=[]
     if result.boxes is not None:
         ids=result.boxes.id
@@ -129,6 +108,6 @@ def frame(f:Frame):
         flow_value=float(np.percentile(cv2.magnitude(flow[...,0],flow[...,1]),90))
     cam.append({"t":f.timestamp,"tracks":tracks,"motion":motion,"flow":flow_value,"gray":gray})
     confidence,reason,pair=score_window(cam)
-    now=time.time();accident=confidence>=0.58 and len(cam)>=12 and now-last_alert.get(f.camera_id,0)>ALERT_COOLDOWN
+    now=time.time();accident=confidence>0 and now-last_alert.get(f.camera_id,0)>ALERT_COOLDOWN
     if accident:last_alert[f.camera_id]=now
-    return {"accident":accident,"confidence":round(confidence,3),"reason":reason,"pair":pair,"tracks":tracks,"window_frames":len(cam),"window_seconds":round(len(cam)/INPUT_FPS,2)}
+    return {"accident":accident,"confidence":round(confidence,3),"reason":reason,"pair":pair,"tracks":tracks,"window_frames":len(cam),"window_seconds":round(len(cam)/INPUT_FPS,2),"touch_tolerance_px":TOUCH_PX}

@@ -12,16 +12,16 @@
 <body>
 <header><b>CORDDSBASE</b><span id="status">OFFLINE</span></header>
 
-<main id="gate" hidden>
+<main id="gate">
 <section class="card">
 <h1>CORDDSBASE</h1>
 <p>Security camera command interface</p>
-<div class="actions"><button id="operatorBtn">OPERATOR</button><button id="cameraBtn">CAMERA</button></div>
-<p id="gateMsg">Ready.</p>
+<div class="actions"><button id="operatorBtn">OPERATOR</button><button id="legalBtn">LEGAL</button><button id="cameraBtn">CAMERA</button></div><div id="loginPanel" hidden><label id="loginLabel">Password</label><input id="loginPassword" type="password" autocomplete="off" placeholder="Password"><button id="loginSubmit">LOGIN</button></div>
+<p id="gateMsg">Select a role. Camera requires no password.</p>
 </section>
 </main>
 
-<main id="app">
+<main id="app" hidden>
 <aside>
 <h2>CORDDSBASE</h2>
 <button class="nav active" data-view="cameras">Cameras <span id="cameraCount">0</span></button>
@@ -93,34 +93,17 @@
 </main>
 <script>
 (function(){
-  function openMode(role){
-    var gate=document.getElementById("gate"), app=document.getElementById("app");
-    var op=document.getElementById("operatorPanel"), cam=document.getElementById("cameraPanel");
-    if(!gate||!app)return;
-    gate.hidden=true; app.hidden=false;
-    if(op)op.hidden=role!=="operator";
-    if(cam)cam.hidden=role!=="camera";
-    var title=document.getElementById("title");
-    if(title)title.textContent=role==="operator"?"Cameras":"Camera";
-    var status=document.getElementById("status");
-    if(status)status.textContent=role.toUpperCase();
-  }
-  document.getElementById("operatorBtn").addEventListener("click",function(){openMode("operator")});
-  document.getElementById("cameraBtn").addEventListener("click",function(){openMode("camera")});
+var role="";
+var panel=document.getElementById("loginPanel"),pass=document.getElementById("loginPassword"),label=document.getElementById("loginLabel"),msg=document.getElementById("gateMsg");
+function choose(r){role=r;if(r==="camera"){panel.hidden=true;document.getElementById("cameraBtn").dataset.authCamera="1";return}panel.hidden=false;label.textContent=r==="operator"?"Operator password":"Legal password";pass.value="";pass.focus();msg.textContent=r.toUpperCase()+" login required."}
+document.getElementById("operatorBtn").onclick=function(){choose("operator")};
+document.getElementById("legalBtn").onclick=function(){choose("legal")};
+document.getElementById("cameraBtn").onclick=function(){window.CORDDS_VIEW_ROLE="camera";document.getElementById("gate").hidden=true;document.getElementById("app").hidden=false;document.getElementById("operatorPanel").hidden=true;document.getElementById("cameraPanel").hidden=false;document.getElementById("title").textContent="Camera";document.getElementById("status").textContent="CAMERA"};
+document.getElementById("loginSubmit").onclick=function(){var expected=role==="operator"?"op":"legal";if(pass.value!==expected){msg.textContent="Incorrect password.";return}window.CORDDS_VIEW_ROLE=role;panel.hidden=true;document.getElementById("createRoom").click()};
+pass.addEventListener("keydown",function(e){if(e.key==="Enter")document.getElementById("loginSubmit").click()});
 })();
 </script>
 <script src="app.js?v=20260925-1220"></script>
-<script>
-window.addEventListener("load",function(){
-  setTimeout(function(){
-    var room=document.getElementById("room");
-    var saved="";
-    try{saved=localStorage.getItem("cordds_room")||""}catch(e){}
-    if(room)room.value=saved||room.value||"Bum";
-    var btn=document.getElementById("createRoom");
-    if(btn)btn.click();
-  },150);
-});
-</script>
+<script>window.addEventListener("load",function(){document.getElementById("gate").hidden=false;document.getElementById("app").hidden=true});</script>
 </body>
 </html>

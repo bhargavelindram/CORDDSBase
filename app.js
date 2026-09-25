@@ -115,10 +115,10 @@ $("toggleAi").disabled=true;
 return false;
 }}
 function captureAgentFrame(video){
-const w=Math.min(512,video.videoWidth||512),h=Math.max(1,Math.round(w*(video.videoHeight||360)/(video.videoWidth||512)));
+const w=Math.min(256,video.videoWidth||256),h=Math.max(1,Math.round(w*(video.videoHeight||360)/(video.videoWidth||512)));
 const canvas=document.createElement("canvas");canvas.width=w;canvas.height=h;
 canvas.getContext("2d",{alpha:false}).drawImage(video,0,0,w,h);
-return canvas.toDataURL("image/jpeg",0.60).split(",")[1];
+return canvas.toDataURL("image/jpeg",0.45).split(",")[1];
 }
 function motionGate(video,id){
   const w=96,h=54;
@@ -132,7 +132,7 @@ function motionGate(video,id){
   m.prev.set(p);
   const ratio=changed/Math.max(1,total);
   if(ratio>.025){m.lastChange=Date.now();return true}
-  return Date.now()-m.lastChange<4000;
+  return Date.now()-m.lastChange<8000;
 }
 async function sendVisionFrame(id){
 const c=S.cameras.get(id);
@@ -142,9 +142,9 @@ if(!motionGate(c.video,id)){
   return;
 }
 const last=S.ai.lastInference.get(id)||0;
-if(Date.now()-last<45000)return;
-S.ai.lastInference.set(id,Date.now());
+if(Date.now()-last<15000)return;
 S.ai.busy.set(id,true);
+$("aiStatus").textContent="VISION AGENT ONLINE · ANALYZING CAMERA FRAME…";
 try{
 const jpeg=captureAgentFrame(c.video);
 const r=await localAgentFetch(S.accidentApi+"/frame",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({camera_id:id,timestamp:Date.now()/1000,jpeg_base64:jpeg})});
@@ -153,11 +153,13 @@ if(!r.ok)throw new Error(data.detail||"vision agent request failed");
 c.accidentStatus&&(c.accidentStatus.textContent=data.collision_visible?"ACCIDENT AI: COLLISION VISIBLE":"ACCIDENT AI: MONITORING");
 const count=Number(data.vehicle_count||0);
 $("aiStatus").textContent="VISION AGENT ONLINE · "+S.cameras.size+" camera(s) · "+count+" vehicle(s) in latest frame";
+S.ai.lastInference.set(id,Date.now());
 if(data.accident)reportCollision(c,id,Number(data.confidence||0),data.reason||"Vision agent detected a collision");
 }catch(e){
 console.warn("vision agent",e);
-c.accidentStatus&&(c.accidentStatus.textContent="ACCIDENT AI: SERVER ERROR");
-$("aiStatus").textContent="VISION AGENT ONLINE · waiting for local Ollama response";
+c.accidentStatus&&(c.accidentStatus.textContent="ACCIDENT AI: RETRYING");
+S.ai.lastInference.set(id,Math.max(0,Date.now()-15000));
+$("aiStatus").textContent="VISION AGENT ONLINE · response slow; retrying";
 }finally{S.ai.busy.set(id,false)}}
 function scheduleVision(id){
 if(!S.ai.running)return;

@@ -111,7 +111,6 @@ def health():
         "model": VISION_MODEL,
         "vehicle_identifier": "vision agent",
         "paid_services": True,
-        "yolo": False,
     }
 
 @app.post("/frame")

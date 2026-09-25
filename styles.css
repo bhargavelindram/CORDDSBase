@@ -2,7 +2,7 @@
 html,body{margin:0;background:#080808;color:#f5f5f5;font:15px Arial,sans-serif}
 [hidden]{display:none!important}
 header{height:58px;border-bottom:1px solid #292929;display:flex;align-items:center;justify-content:space-between;padding:0 22px;letter-spacing:2px}
-header span{font-size:11px;color:#f22}
+header span{font-size:11px;color:#f22}.headerStatus{display:flex;gap:14px;align-items:center}.headerStatus #visionAgentBadge{color:#aaa}.headerStatus #visionAgentBadge.online{color:#5f5}.headerStatus #visionAgentBadge.alert{color:#f33}
 main{min-height:calc(100vh - 58px)}
 #gate{display:grid;place-items:center;padding:20px}
 .card{width:min(520px,100%);background:#101010;border:1px solid #292929;border-radius:12px;padding:28px}

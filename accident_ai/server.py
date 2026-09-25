@@ -2,11 +2,11 @@ import base64, os, time, json
 from collections import defaultdict, deque
 from typing import Dict
 import cv2, numpy as np, requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException\nfrom fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from ultralytics import YOLO
 
-app = FastAPI(title="CORDDSBase Accident AI")
+app = FastAPI(title="CORDDSBase Accident AI")\napp.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 MODEL_PATH = os.getenv("YOLO_MODEL", "yolo11x.pt")
 VLM_URL = os.getenv("VLM_URL", "http://127.0.0.1:30000/v1/chat/completions")
 VLM_MODEL = os.getenv("VLM_MODEL", "Qwen/Qwen3-VL-32B-Instruct")

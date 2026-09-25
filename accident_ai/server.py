@@ -23,7 +23,7 @@ async def add_local_network_access_header(request, call_next):
     return response
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
 VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "llava:7b")
-FRAME_TIMEOUT = float(os.getenv("VISION_TIMEOUT", "30"))
+FRAME_TIMEOUT = float(os.getenv("VISION_TIMEOUT", "90"))
 ALERT_COOLDOWN = float(os.getenv("VISION_ALERT_COOLDOWN", "2"))
 last_alert_by_camera: Dict[str, float] = {}
 
@@ -70,8 +70,10 @@ def ask_vision(jpeg_base64: str):
         "images": [jpeg_base64],
         "stream": False,
         "format": "json",
+        "keep_alive": "10m",
         "options": {
-            "temperature": 0
+            "temperature": 0,
+            "num_predict": 96,
         },
     }
     try:

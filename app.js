@@ -32,7 +32,7 @@ const render=()=>{if(!c.recording)return;ctx.filter="none";ctx.drawImage(video,0
 }else{stream=capture();c.recording=true}
 let chunks=[],started=Date.now();
 const begin=()=>{chunks=[];started=Date.now();c.recorder=new MediaRecorder(stream,{mimeType});c.recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};c.recorder.onstop=async()=>{const blob=new Blob(chunks,{type:mime});if(blob.size>1000)await saveRecording({camera:c.name,started,ended:Date.now(),blob,type:mime});if(c.recording)begin()};c.recorder.start(1000);c.recordTimer=setTimeout(()=>{if(c.recorder?.state==="recording")c.recorder.stop()},SEGMENT_MS)};begin();
-}catch(e){c.recording=false;c.loc.textContent="Recording error"}}
+}catch(e){c.recording=false;c.loc.textContent="Recording error: "+(e?.message||"unsupported recorder");console.warn("recording",e)}}
 
 function openDb(){return new Promise((resolve,reject)=>{if(S.db)return resolve(S.db);const r=indexedDB.open("corddsbase-storage",1);r.onupgradeneeded=()=>r.result.createObjectStore("segments",{keyPath:"id",autoIncrement:true});r.onsuccess=()=>{S.db=r.result;resolve(S.db)};r.onerror=()=>reject(r.error)})}
 async function saveRecording(x){try{const db=await openDb();await new Promise((res,rej)=>{const tx=db.transaction("segments","readwrite");tx.objectStore("segments").add(x);tx.oncomplete=res;tx.onerror=()=>rej(tx.error)});refreshStorage()}catch(e){console.warn("recording save",e)}}
@@ -131,14 +131,14 @@ function motionGate(video,id){
   for(let i=0;i<p.length;i+=16){total++;const d=Math.abs(p[i]-m.prev[i])+Math.abs(p[i+1]-m.prev[i+1])+Math.abs(p[i+2]-m.prev[i+2]);if(d>45)changed++}
   m.prev.set(p);
   const ratio=changed/Math.max(1,total);
-  if(ratio>.025){m.lastChange=Date.now();return true}
-  return Date.now()-m.lastChange<8000;
+  if(ratio>.008){m.lastChange=Date.now();return true}
+  return Date.now()-m.lastChange<12000;
 }
 async function sendVisionFrame(id){
 const c=S.cameras.get(id);
 if(!S.ai.running||!c||!c.video||c.video.readyState<2||S.ai.busy.get(id))return;
-if(!motionGate(c.video,id)){
-  c.accidentStatus&&(c.accidentStatus.textContent="ACCIDENT AI: MONITORING · motion gate");
+if(!motionGate(c.video,id) && (Date.now()-(S.ai.lastInference.get(id)||0)<5000)){
+  c.accidentStatus&&(c.accidentStatus.textContent="ACCIDENT AI: MONITORING");
   return;
 }
 const last=S.ai.lastInference.get(id)||0;

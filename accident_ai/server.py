@@ -12,9 +12,15 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False,
 
 MODEL_PATH=os.getenv("YOLO_MODEL","yolo11x.pt")
 FRAME_SIZE=int(os.getenv("YOLO_SIZE","640"))
-WINDOW_FRAMES=40
+WINDOW_FRAMES=48
 INPUT_FPS=15
 ALERT_COOLDOWN=6.0
+VLM_URL=os.getenv("VLM_URL","http://127.0.0.1:30000/v1/chat/completions")
+VLM_MODEL=os.getenv("VLM_MODEL","Qwen/Qwen3-VL-32B-Instruct")
+VLM_ENABLED=os.getenv("VLM_ENABLED","true").lower()=="true"
+VLM_MIN_CONFIDENCE=float(os.getenv("VLM_MIN_CONFIDENCE","0.10"))
+vlm_busy:Dict[str,bool]=defaultdict(bool)
+vlm_last:Dict[str,dict]={}
 model=YOLO(MODEL_PATH)
 history:Dict[str,deque]=defaultdict(lambda:deque(maxlen=WINDOW_FRAMES))
 last_alert:Dict[str,float]={}
@@ -76,12 +82,56 @@ def score_window(cam):
     items=list(cam)
     if not items: return 0.0,"waiting",None
     hit,pair=current_edge_collision(items[-1]["tracks"])
-    if hit: return 0.10,"car box edges touching",pair
+    if hit: return 0.10,"edge contact candidate",pair
     return 0.0,"no edge contact",None
+
+def parse_vlm(text):
+    import json,re
+    try:
+        m=re.search(r"\{.*?\}",text,re.S)
+        if m:
+            obj=json.loads(m.group(0))
+            return bool(obj.get("accident",False)),float(obj.get("confidence",0)),str(obj.get("reason",""))
+    except Exception:
+        pass
+    return False,0.0,text[:240]
+
+def ask_vlm(items):
+    if not VLM_ENABLED:
+        return False,0.0,"VLM disabled"
+    import requests
+    images=[{"type":"image_url","image_url":{"url":"data:image/jpeg;base64,"+item["jpeg"]}} for item in items]
+    prompt=("You are the final traffic-accident judge for a fixed CCTV camera. "
+            "These are 48 consecutive frames in chronological order. Decide whether the cars "
+            "actually crashed or collided during this window. Bounding-box overlap from perspective, "
+            "detector jitter, occlusion, or large boxes is NOT a crash. Cars merely driving close "
+            "together is NOT a crash. Look for actual physical contact or a clear collision event. "
+            "Return ONLY JSON: {\"accident\":true/false,\"confidence\":0 to 1,\"reason\":\"short\"}.")
+    payload={"model":VLM_MODEL,"messages":[{"role":"user","content":[{"type":"text","text":prompt}]+images}],"temperature":0,"max_tokens":120}
+    r=requests.post(VLM_URL,json=payload,timeout=20)
+    r.raise_for_status()
+    return parse_vlm(r.json()["choices"][0]["message"]["content"])
+
+def run_vlm_window(camera_id,items):
+    if len(items)<WINDOW_FRAMES or vlm_busy[camera_id]:
+        return None
+    vlm_busy[camera_id]=True
+    try:
+        accident,confidence,reason=ask_vlm(items)
+        result={"accident":accident and confidence>=VLM_MIN_CONFIDENCE,
+                "confidence":round(confidence,3),"reason":reason,"model":VLM_MODEL,"frames":len(items)}
+        vlm_last[camera_id]=result
+        return result
+    except Exception as e:
+        result={"accident":False,"confidence":0.0,"reason":"VLM error: "+str(e)[:180],"model":VLM_MODEL,"frames":len(items)}
+        vlm_last[camera_id]=result
+        return result
+    finally:
+        vlm_busy[camera_id]=False
 
 @app.get("/health")
 def health():
-    return {"ok":True,"detector":"YOLO11x","tracker":"BoT-SORT","window":"40 frames / 5 seconds","input_rate":"8 FPS"}
+    return {"ok":True,"detector":"YOLO11x","tracker":"BoT-SORT","window":"48 frames / 3.2 seconds at 15 FPS","input_rate":"15 FPS","final_judge":VLM_MODEL,"vlm_enabled":VLM_ENABLED}
 
 @app.post("/frame")
 def frame(f:Frame):
@@ -99,6 +149,8 @@ def frame(f:Frame):
             tid=int(ids[i]) if ids is not None else i
             tracks.append({"id":tid,"class":int(result.boxes.cls[i]),"confidence":float(result.boxes.conf[i]),"box":[float(x) for x in box]})
     small=cv2.resize(image,(640,360))
+    ok,encoded=cv2.imencode(".jpg",small,[int(cv2.IMWRITE_JPEG_QUALITY),65])
+    frame_jpeg=base64.b64encode(encoded.tobytes()).decode("ascii") if ok else ""
     gray=cv2.cvtColor(small,cv2.COLOR_BGR2GRAY)
     cam=history[f.camera_id];previous=cam[-1]["gray"] if cam else None
     motion=float(np.mean(cv2.absdiff(gray,previous))) if previous is not None else 0.0
@@ -106,8 +158,12 @@ def frame(f:Frame):
     if previous is not None:
         flow=cv2.calcOpticalFlowFarneback(previous,gray,None,0.5,2,15,2,5,1.2,0)
         flow_value=float(np.percentile(cv2.magnitude(flow[...,0],flow[...,1]),90))
-    cam.append({"t":f.timestamp,"tracks":tracks,"motion":motion,"flow":flow_value,"gray":gray})
-    confidence,reason,pair=score_window(cam)
-    now=time.time();accident=confidence>0 and now-last_alert.get(f.camera_id,0)>ALERT_COOLDOWN
+    cam.append({"t":f.timestamp,"tracks":tracks,"motion":motion,"flow":flow_value,"gray":gray,"jpeg":frame_jpeg})
+    vlm_result=None
+    if len(cam)>=WINDOW_FRAMES and len(cam)%WINDOW_FRAMES==0:
+        vlm_result=run_vlm_window(f.camera_id,list(cam))
+    latest=vlm_last.get(f.camera_id,{"accident":False,"confidence":0.0,"reason":"waiting for 48-frame AI review","model":VLM_MODEL,"frames":len(cam)})
+    now=time.time()
+    accident=bool(latest.get("accident")) and now-last_alert.get(f.camera_id,0)>ALERT_COOLDOWN
     if accident:last_alert[f.camera_id]=now
-    return {"accident":accident,"confidence":round(confidence,3),"reason":reason,"pair":pair,"tracks":tracks,"window_frames":len(cam),"window_seconds":round(len(cam)/INPUT_FPS,2),"touch_tolerance_px":TOUCH_PX}
+    return {"accident":accident,"confidence":float(latest.get("confidence",0)),"reason":latest.get("reason",""),"pair":None,"tracks":tracks,"window_frames":len(cam),"window_seconds":round(len(cam)/INPUT_FPS,2),"touch_tolerance_px":TOUCH_PX,"vlm":latest,"vlm_reviewed":vlm_result is not None}

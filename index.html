@@ -56,7 +56,7 @@
 
 <section id="view-alerts" class="view" hidden>
 <div class="panel">
-<div class="sectionHead"><div><h2>Detection Alerts</h2><p>YOLO11 detections at or above the 30% confidence threshold.</p></div><button id="clearAlerts">CLEAR ALERTS</button></div>
+<div class="sectionHead"><div><h2>Detection Alerts</h2><p>YOLO11 detections at or above the 20% confidence threshold.</p></div><button id="clearAlerts">CLEAR ALERTS</button></div>
 <div id="alertsList" class="list empty">No detection alerts yet.</div>
 </div>
 </section>
@@ -70,7 +70,7 @@
 
 <section id="view-ai" class="view" hidden>
 <div class="panel">
-<div class="sectionHead"><div><h2>YOLO11 Detection</h2><p>Browser-side YOLO11n pipeline. Detection threshold: <b>30%</b>.</p></div><button id="loadAi">YOLO11 AUTO</button></div>
+<div class="sectionHead"><div><h2>YOLO11 Detection</h2><p>Browser-side YOLO11n pipeline. Detection threshold: <b>20%</b>.</p></div><button id="loadAi">YOLO11 AUTO</button></div>
 <div id="aiStatus" class="aiStatus">AI engine not loaded.</div>
 <div class="aiGrid">
 <div><label>Detection camera</label><select id="aiCamera"><option value="">No camera selected</option></select></div>
@@ -83,7 +83,7 @@
 <section id="view-settings" class="view" hidden>
 <div class="panel">
 <h2>Settings</h2>
-<div class="setting"><span>YOLO confidence threshold</span><b>30%</b></div>
+<div class="setting"><span>YOLO confidence threshold</span><b>20%</b></div>
 <div class="setting"><span>Recording segment length</span><b>2 minutes</b></div>
 <div class="setting"><span>Map</span><b>Leaflet + OpenStreetMap</b></div>
 <div class="setting"><span>Build</span><b>CORDDSBase 2.0</b></div>

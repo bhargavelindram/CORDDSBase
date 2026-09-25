@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>CORDDSBASE</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-<link rel="stylesheet" href="styles.css?v=20260925-1236">
+<link rel="stylesheet" href="styles.css?v=20260925-1300">
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.22.3/dist/livekit-client.umd.min.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 </head>
@@ -99,11 +99,11 @@ function choose(r){role=r;if(r==="camera"){panel.hidden=true;document.getElement
 document.getElementById("operatorBtn").onclick=function(){choose("operator")};
 document.getElementById("legalBtn").onclick=function(){choose("legal")};
 document.getElementById("cameraBtn").onclick=function(){window.CORDDS_VIEW_ROLE="camera";document.getElementById("gate").hidden=true;document.getElementById("app").hidden=false;document.getElementById("operatorPanel").hidden=true;document.getElementById("cameraPanel").hidden=false;document.getElementById("title").textContent="Camera";document.getElementById("status").textContent="CAMERA"};
-document.getElementById("loginSubmit").onclick=function(){var expected=role==="operator"?"op":"legal";if(String(pass.value||"").trim()!==expected){msg.textContent="Incorrect password. Use the operator password: op";return}window.CORDDS_VIEW_ROLE=role;panel.hidden=true;document.getElementById("gate").hidden=true;document.getElementById("app").hidden=false;document.getElementById("operatorPanel").hidden=role!=="operator";document.getElementById("cameraPanel").hidden=true;document.getElementById("title").textContent=role==="operator"?"Cameras":"Legal";document.getElementById("status").textContent=role.toUpperCase();msg.textContent="";setTimeout(function(){var b=document.getElementById("createRoom");if(b)b.click()},0)};
+document.getElementById("loginSubmit").onclick=function(){var expected=role==="operator"?"op":"legal";if(String(pass.value||"").trim()!==expected){msg.textContent="Incorrect password. Use the operator password: op";return}window.CORDDS_VIEW_ROLE=role;panel.hidden=true;document.getElementById("gate").hidden=true;document.getElementById("app").hidden=false;document.getElementById("operatorPanel").hidden=role!=="operator";document.getElementById("cameraPanel").hidden=true;document.getElementById("title").textContent=role==="operator"?"Cameras":"Legal";document.getElementById("status").textContent=role.toUpperCase();msg.textContent="";if(role==="operator"){var room=document.getElementById("room");if(room)room.focus()}};
 pass.addEventListener("keydown",function(e){if(e.key==="Enter")document.getElementById("loginSubmit").click()});
 })();
 </script>
-<script src="app.js?v=20260925-1236"></script>
-<script>window.addEventListener("load",function(){document.getElementById("gate").hidden=false;document.getElementById("app").hidden=true});</script>
+<script src="app.js?v=20260925-1300"></script>
+<script>window.addEventListener("load",function(){if(!window.CORDDS_VIEW_ROLE){document.getElementById("gate").hidden=false;document.getElementById("app").hidden=true}});</script>
 </body>
 </html>

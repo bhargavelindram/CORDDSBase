@@ -31,10 +31,15 @@ function reportCollision(c,pairKey,score){
 const id=c.id+"|"+pairKey;
 const now=Date.now();
 const existing=S.collisions.get(id);
-if(existing&&now-existing.lastSeen<5000){existing.lastSeen=now;existing.score=Math.max(existing.score,score);return}
+if(existing&&now-existing.lastSeen<8000){
+  existing.lastSeen=now;
+  existing.score=Math.max(existing.score,score);
+  return;
+}
 const incident={id,camera:c.name||"Camera",score,time:now,lastSeen:now,status:"ACTIVE"};
 S.collisions.set(id,incident);
-addAlert(c.name||"Camera","VEHICLE COLLISION",score);
+addAlert(c.name||"Camera","ACCIDENT DETECTED",score);
+playAlertSound();
 renderCollisionControl();
 }
 function acknowledgeCollision(id){
@@ -88,22 +93,66 @@ const predicted=[...c.tracks.values()].map(t=>{const dt=Math.max(.05,Math.min(.8
 const candidates=[];
 for(const t of predicted)for(let i=0;i<observations.length;i++){const o=observations[i],dist=Math.hypot(o.cx-t.pcx,o.cy-t.pcy)/Math.max(w,h),pb={xmin:t.pcx-t.pbw/2,ymin:t.pcy-t.pbh/2,xmax:t.pcx+t.pbw/2,ymax:t.pcy+t.pbh/2},ov=iou(pb,o.box),sizeDiff=Math.abs(Math.log((o.bw*o.bh)/Math.max(1,t.pbw*t.pbh))),cost=dist*2.8+(1-ov)*.55+Math.min(1,sizeDiff)*.35,maxDist=Math.min(.22,Math.max(.07,.065+Math.hypot(t.vx||0,t.vy||0)/Math.max(w,h)*1.5));if(dist<maxDist&&(ov>.001||dist<.11))candidates.push({t,i,cost})}
 candidates.sort((a,b)=>a.cost-b.cost);const usedTracks=new Set(),usedObs=new Set(),updated=new Map();
-for(const m of candidates){if(usedTracks.has(m.t.id)||usedObs.has(m.i))continue;const o=observations[m.i],t=m.t,dt=Math.max(.05,Math.min(1,(now-(t.lastTime||now))/1000));updated.set(t.id,{...o,id:t.id,cx:o.cx,cy:o.cy,vx:(o.cx-t.cx)/dt,vy:(o.cy-t.cy)/dt,bw:o.bw,bh:o.bh,box:o.box,miss:0,age:(t.age||0)+1,lastTime:now,lastSeen:now,predicted:false});usedTracks.add(t.id);usedObs.add(m.i)}
+for(const m of candidates){if(usedTracks.has(m.t.id)||usedObs.has(m.i))continue;const o=observations[m.i],t=m.t,dt=Math.max(.05,Math.min(1,(now-(t.lastTime||now))/1000));updated.set(t.id,{...o,id:t.id,cx:o.cx,cy:o.cy,vx:(o.cx-t.cx)/dt,vy:(o.cy-t.cy)/dt,bw:o.bw,bh:o.bh,box:o.box,miss:0,age:(t.age||0)+1,lastTime:now,lastSeen:now,predicted:false,prevVx:t.vx||0,prevVy:t.vy||0,prevSpeed:Math.hypot(t.vx||0,t.vy||0)});usedTracks.add(t.id);usedObs.add(m.i)}
 // Keep cars in memory through longer detector dropouts/occlusion.
 for(const t of predicted)if(!usedTracks.has(t.id)){const miss=(t.miss||0)+1;if(miss<=60){const cx=t.pcx,cy=t.pcy,bw=t.pbw,bh=t.pbh;updated.set(t.id,{...t,cx,cy,box:{xmin:Math.max(0,cx-bw/2),ymin:Math.max(0,cy-bh/2),xmax:Math.min(w,cx+bw/2),ymax:Math.min(h,cy+bh/2)},bw,bh,miss,lastTime:now,predicted:true,vx:(t.vx||0)*.92,vy:(t.vy||0)*.92})}}
-for(let i=0;i<observations.length;i++)if(!usedObs.has(i)){const o=observations[i],id=c.nextTrackId++;updated.set(id,{...o,id,cx:o.cx,cy:o.cy,vx:0,vy:0,bw:o.bw,bh:o.bh,box:o.box,miss:0,age:1,lastTime:now,lastSeen:now,predicted:false})}
+for(let i=0;i<observations.length;i++)if(!usedObs.has(i)){const o=observations[i],id=c.nextTrackId++;updated.set(id,{...o,id,cx:o.cx,cy:o.cy,vx:0,vy:0,bw:o.bw,bh:o.bh,box:o.box,miss:0,age:1,lastTime:now,lastSeen:now,predicted:false,prevVx:0,prevVy:0,prevSpeed:0})}
 c.tracks=updated;
 
 // Draw boxes only. Trajectory lines are intentionally disabled.
 for(const t of c.tracks.values()){const b=t.box,x=b.xmin,y=b.ymin,bw=b.xmax-b.xmin,bh=b.ymax-b.ymin;ctx.strokeStyle=t.predicted?"#ffffff":"#ff0000";ctx.lineWidth=Math.max(2,Math.round(w/500));ctx.setLineDash(t.predicted?[8,6]:[]);ctx.strokeRect(x,y,bw,bh);ctx.setLineDash([]);const label="CAR #"+t.id+(t.predicted?" · TRACKING":"")+" "+Math.round((t.score||0)*100)+"%";const tw=ctx.measureText(label).width+12,th=24;ctx.fillStyle=t.predicted?"#ffffff":"#ff0000";ctx.fillRect(x,Math.max(0,y-th),tw,th);ctx.fillStyle=t.predicted?"#000000":"#ffffff";ctx.fillText(label,x+6,Math.max(17,y-6))}
 
-// Collision = two persistent car boxes touching at their sides, with no overlap.
-// A small pixel tolerance handles sub-pixel camera motion.
-const tracks=[...c.tracks.values()].filter(t=>!t.predicted&&t.age>=1);if(!c.collisionPairs)c.collisionPairs=new Map();const seenPairs=new Set(),TOUCH_PX=Math.max(5,Math.round(w/220));
-for(let i=0;i<tracks.length;i++)for(let j=i+1;j<tracks.length;j++){const a=tracks[i],b=tracks[j],key=[Math.min(a.id,b.id),Math.max(a.id,b.id)].join(":");seenPairs.add(key);const ax1=a.box.xmin,ay1=a.box.ymin,ax2=a.box.xmax,ay2=a.box.ymax,bx1=b.box.xmin,by1=b.box.ymin,bx2=b.box.xmax,by2=b.box.ymax,xOverlap=Math.min(ax2,bx2)-Math.max(ax1,bx1),yOverlap=Math.min(ay2,by2)-Math.max(ay1,by1),gapX=Math.max(bx1-ax2,ax1-bx2,0),gapY=Math.max(by1-ay2,ay1-by2,0),touch=(xOverlap*yOverlap)<=0&&((gapX<=TOUCH_PX&&yOverlap>0)||(gapY<=TOUCH_PX&&xOverlap>0)),prev=c.collisionPairs.get(key),streak=touch?(prev?.streak||0)+1:0;c.collisionPairs.set(key,{streak});if(streak>=1)reportCollision(c,key,Math.max(a.score||0,b.score||0))}
-for(const key of c.collisionPairs.keys())if(!seenPairs.has(key))c.collisionPairs.delete(key);
+// Temporal accident reasoning: do not alert merely because boxes touch.
+// We combine persistent IDs, closing motion, sudden deceleration/direction change,
+// relative approach, proximity/overlap, and multi-frame persistence.
+if(!c.accidentPairs)c.accidentPairs=new Map();
+const tracks=[...c.tracks.values()].filter(t=>!t.predicted&&t.age>=2);
+const seenPairs=new Set();
+const nowMs=performance.now();
+const frameScale=Math.max(w,h);
+for(let i=0;i<tracks.length;i++)for(let j=i+1;j<tracks.length;j++){
+  const a=tracks[i],b=tracks[j];
+  const key=[Math.min(a.id,b.id),Math.max(a.id,b.id)].join(":");
+  seenPairs.add(key);
+  const ax=(a.box.xmin+a.box.xmax)/2, ay=(a.box.ymin+a.box.ymax)/2;
+  const bx=(b.box.xmin+b.box.xmax)/2, by=(b.box.ymin+b.box.ymax)/2;
+  const dx=bx-ax, dy=by-ay, dist=Math.hypot(dx,dy)||1;
+  const ux=dx/dist, uy=dy/dist;
+  const avx=a.vx||0, avy=a.vy||0, bvx=b.vx||0, bvy=b.vy||0;
+  const closing=((avx-bvx)*ux+(avy-bvy)*uy);
+  const aSpeed=Math.hypot(avx,avy), bSpeed=Math.hypot(bvx,bvy);
+  const aPrev=a.prevSpeed||aSpeed, bPrev=b.prevSpeed||bSpeed;
+  const decelA=Math.max(0,(aPrev-aSpeed)/Math.max(1,aPrev));
+  const decelB=Math.max(0,(bPrev-bSpeed)/Math.max(1,bPrev));
+  const accelA=Math.hypot((a.vx||0)-(a.prevVx||a.vx||0),(a.vy||0)-(a.prevVy||a.vy||0))/frameScale;
+  const accelB=Math.hypot((b.vx||0)-(b.prevVx||b.vx||0),(b.vy||0)-(b.prevVy||b.vy||0))/frameScale;
+  const xOverlap=Math.min(a.box.xmax,b.box.xmax)-Math.max(a.box.xmin,b.box.xmin);
+  const yOverlap=Math.min(a.box.ymax,b.box.ymax)-Math.max(a.box.ymin,b.box.ymin);
+  const overlapW=Math.max(0,xOverlap), overlapH=Math.max(0,yOverlap);
+  const inter=overlapW*overlapH;
+  const areaA=Math.max(1,a.bw*a.bh), areaB=Math.max(1,b.bw*b.bh);
+  const overlapRatio=inter/Math.min(areaA,areaB);
+  const edgeGapX=Math.max(0,Math.max(b.box.xmin-a.box.xmax,a.box.xmin-b.box.xmax));
+  const edgeGapY=Math.max(0,Math.max(b.box.ymin-a.box.ymax,a.box.ymin-b.box.ymax));
+  const gap=Math.hypot(edgeGapX,edgeGapY)/frameScale;
+  const proximity=Math.max(0,1-Math.min(1,gap/.10));
+  const closingScore=Math.max(0,Math.min(1,closing/(frameScale*.025)));
+  const impactMotion=Math.max(decelA,decelB,Math.min(1,accelA*8),Math.min(1,accelB*8));
+  const contactScore=Math.max(overlapRatio,proximity);
+  const pair=c.accidentPairs.get(key)||{streak:0,peak:0,lastContact:0};
+  const evidence=0.38*contactScore+0.28*closingScore+0.24*impactMotion+0.10*Math.max(decelA,decelB);
+  if(evidence>=.42) pair.streak++; else pair.streak=Math.max(0,pair.streak-1);
+  pair.peak=Math.max(pair.peak,evidence);
+  pair.lastContact=evidence;
+  c.accidentPairs.set(key,pair);
+  if(pair.streak>=3 && pair.peak>=.62){
+    reportCollision(c,key,Math.min(.99,pair.peak));
+    pair.streak=0;
+    pair.peak=0;
+  }
 }
-function decodeYOLO(output,meta){const data=output.data,dims=output.dims,channels=dims[1],count=dims[2],transposed=channels!==84,attrs=transposed?count:channels,n=transposed?channels:count;const get=(a,c)=>transposed?data[c*attrs+a]:data[a*n+c];const dets=[];for(let c=0;c<n;c++){let score=0,cls=-1;for(let a=4;a<attrs;a++){const v=get(a,c);if(v>score){score=v;cls=a-4}}if(score<YOLO_THRESHOLD||cls!==2)continue;const cx=get(0,c),cy=get(1,c),bw=get(2,c),bh=get(3,c);const box={xmin:Math.max(0,Math.min(meta.vw,(cx-bw/2-meta.dx)/meta.scale)),ymin:Math.max(0,Math.min(meta.vh,(cy-bh/2-meta.dy)/meta.scale)),xmax:Math.max(0,Math.min(meta.vw,(cx+bw/2-meta.dx)/meta.scale)),ymax:Math.max(0,Math.min(meta.vh,(cy+bh/2-meta.dy)/meta.scale))};if(box.xmax>box.xmin&&box.ymax>box.ymin)dets.push({score,label:COCO[cls]||("class "+cls),box})}return nms(dets,.70)}
+for(const key of c.accidentPairs.keys())if(!seenPairs.has(key))c.accidentPairs.delete(key);
+}function decodeYOLO(output,meta){const data=output.data,dims=output.dims,channels=dims[1],count=dims[2],transposed=channels!==84,attrs=transposed?count:channels,n=transposed?channels:count;const get=(a,c)=>transposed?data[c*attrs+a]:data[a*n+c];const dets=[];for(let c=0;c<n;c++){let score=0,cls=-1;for(let a=4;a<attrs;a++){const v=get(a,c);if(v>score){score=v;cls=a-4}}if(score<YOLO_THRESHOLD||cls!==2)continue;const cx=get(0,c),cy=get(1,c),bw=get(2,c),bh=get(3,c);const box={xmin:Math.max(0,Math.min(meta.vw,(cx-bw/2-meta.dx)/meta.scale)),ymin:Math.max(0,Math.min(meta.vh,(cy-bh/2-meta.dy)/meta.scale)),xmax:Math.max(0,Math.min(meta.vw,(cx+bw/2-meta.dx)/meta.scale)),ymax:Math.max(0,Math.min(meta.vh,(cy+bh/2-meta.dy)/meta.scale))};if(box.xmax>box.xmin&&box.ymax>box.ymin)dets.push({score,label:COCO[cls]||("class "+cls),box})}return nms(dets,.70)}
 async function detectFrame(id){const c=S.cameras.get(id);if(!S.ai.running||!S.ai.session||!c)return;if(!c.video||c.video.readyState<2){scheduleDetect(id);return}try{const meta=letterbox(c.video),input=tensorFromCanvas(meta.canvas),feeds={};feeds[S.ai.session.inputNames[0]]=input;const result=await S.ai.session.run(feeds),output=result[S.ai.session.outputNames[0]];drawDetections(c,decodeYOLO(output,meta))}catch(e){console.warn("YOLO11 inference",e)}scheduleDetect(id)}
 function scheduleDetect(id){if(S.ai.running){clearTimeout(S.ai.timers.get(id));S.ai.timers.set(id,setTimeout(()=>detectFrame(id),250))}}
 function startAIForCamera(id){if(!S.ai.session||!S.cameras.has(id))return;S.ai.running=true;S.ai.cameras.set(id,true);$("aiStatus").textContent="YOLO11 ONLINE · detecting all connected cameras · ≥20% confidence";detectFrame(id)}

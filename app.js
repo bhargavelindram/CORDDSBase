@@ -51,13 +51,13 @@ async function sendAccidentFrame(id){
     const r=await fetch(S.accidentApi+"/frame",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({camera_id:id,timestamp:Date.now()/1000,jpeg_base64:b64})});
     if(!r.ok)throw Error("backend "+r.status);const data=await r.json();
     c.remoteTracks=data.tracks||[];
-    if(data.accident){reportCollision(c,"AI-"+Math.floor(Date.now()/8000),Math.max(.60,Math.min(.99,Number(data.confidence)||.60)));}
+    if(data.accident){reportCollision(c,"AI-"+Math.floor(Date.now()/8000),Math.max(.20,Math.min(.99,Number(data.confidence)||.20)));}
     if(c.accidentStatus)c.accidentStatus.textContent=data.accident?"ACCIDENT CONFIRMED · "+Math.round(data.confidence*100)+"%":"AI MONITORING · "+Math.round((Number(data.confidence)||0)*100)+"%";
   }catch(e){if(c.accidentStatus)c.accidentStatus.textContent="ACCIDENT AI OFFLINE";}
   finally{c.accidentBusy=false;}
 }
-function startAccidentAIForCamera(id){const c=S.cameras.get(id);if(!c||!S.accidentApi||c.accidentTimer)return;c.accidentTimer=setInterval(()=>sendAccidentFrame(id),67);sendAccidentFrame(id)}
-function stopAccidentAIForCamera(id){const c=S.cameras.get(id);if(c?.accidentTimer)clearInterval(c.accidentTimer);if(c)c.accidentTimer=null}
+function startAccidentAIForCamera(id){const c=S.cameras.get(id);if(!c||!S.accidentApi||c.accidentTimer)return;const loop=()=>{if(!c.accidentTimer)return;sendAccidentFrame(id).finally(()=>{if(c.accidentTimer)requestAnimationFrame(loop)})};c.accidentTimer=true;loop()}
+function stopAccidentAIForCamera(id){const c=S.cameras.get(id);if(c)c.accidentTimer=null}
 function playAlertSound(){try{unlockAlertAudio();const ctx=S.audioCtx;if(!ctx)return;const now=ctx.currentTime;const osc=ctx.createOscillator(),gain=ctx.createGain();osc.type="square";osc.frequency.setValueAtTime(880,now);osc.frequency.setValueAtTime(660,now+.10);gain.gain.setValueAtTime(.0001,now);gain.gain.exponentialRampToValueAtTime(.18,now+.015);gain.gain.exponentialRampToValueAtTime(.0001,now+.28);osc.connect(gain);gain.connect(ctx.destination);osc.start(now);osc.stop(now+.30)}catch(e){console.warn("alert sound",e)}}
 function addAlert(camera,label,score){const key=camera+"|"+label;const now=Date.now();const last=S.alertCooldown.get(key)||0;if(now-last<10000)return;S.alertCooldown.set(key,now);const a={camera,label,score,time:now};S.alerts.unshift(a);S.alerts=S.alerts.slice(0,200);updateCounts();renderAlerts()}
 function reportCollision(c,pairKey,score){

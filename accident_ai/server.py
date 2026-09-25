@@ -71,11 +71,15 @@ def ask_vision(jpeg_base64: str):
             timeout=FRAME_TIMEOUT,
         )
         if r.status_code >= 400:
-            raise HTTPException(502, "Ollama error: " + r.text[:500])
-        body = r.json()
-        result = parse_json(body.get("response", ""))
+            raise HTTPException(502, "Ollama HTTP " + str(r.status_code) + ": " + r.text[:800])
+        try:
+            body = r.json()
+        except ValueError as e:
+            raise HTTPException(502, "Ollama returned non-JSON HTTP response: " + str(e) + " | body=" + r.text[:500])
+        raw = body.get("response", "")
+        result = parse_json(raw)
         if not isinstance(result, dict):
-            raise HTTPException(502, "Local vision agent returned invalid JSON.")
+            raise HTTPException(502, "Local vision agent returned invalid JSON. Raw response: " + repr(raw[:500]))
         return {
             "collision": bool(result.get("collision", False)),
             "confidence": max(0.0, min(1.0, float(result.get("confidence", 0.0)))),
@@ -86,6 +90,8 @@ def ask_vision(jpeg_base64: str):
         }
     except HTTPException:
         raise
+    except requests.Timeout as e:
+        raise HTTPException(504, "Ollama timed out after " + str(FRAME_TIMEOUT) + "s. LLaVA is too slow for this frame.")
     except requests.RequestException as e:
         raise HTTPException(502, "Ollama request failed: " + str(e))
 

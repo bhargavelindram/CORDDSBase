@@ -115,10 +115,10 @@ $("toggleAi").disabled=true;
 return false;
 }}
 function captureAgentFrame(video){
-const w=Math.min(640,video.videoWidth||640),h=Math.max(1,Math.round(w*(video.videoHeight||360)/(video.videoWidth||640)));
+const w=Math.min(512,video.videoWidth||512),h=Math.max(1,Math.round(w*(video.videoHeight||360)/(video.videoWidth||512)));
 const canvas=document.createElement("canvas");canvas.width=w;canvas.height=h;
 canvas.getContext("2d",{alpha:false}).drawImage(video,0,0,w,h);
-return canvas.toDataURL("image/jpeg",0.72).split(",")[1];
+return canvas.toDataURL("image/jpeg",0.60).split(",")[1];
 }
 async function sendVisionFrame(id){
 const c=S.cameras.get(id);
@@ -136,11 +136,12 @@ if(data.accident)reportCollision(c,id,Number(data.confidence||0),data.reason||"V
 }catch(e){
 console.warn("vision agent",e);
 c.accidentStatus&&(c.accidentStatus.textContent="ACCIDENT AI: SERVER ERROR");
+$("aiStatus").textContent="VISION AGENT ONLINE · waiting for local Ollama response";
 }finally{S.ai.busy.set(id,false)}}
 function scheduleVision(id){
 if(!S.ai.running)return;
 clearTimeout(S.ai.timers.get(id));
-S.ai.timers.set(id,setTimeout(async()=>{await sendVisionFrame(id);scheduleVision(id)},250));
+S.ai.timers.set(id,setTimeout(async()=>{await sendVisionFrame(id);scheduleVision(id)},1500));
 }
 async function startAIForCamera(id){
 if(!S.cameras.has(id))return;

@@ -139,6 +139,5 @@ def frame(f: Frame):
         "camera_id": f.camera_id,
         "frame_timestamp": f.timestamp,
         "model": result["model"],
-        "yolo": False,
         "agent": "OpenAI vision collision agent",
     }

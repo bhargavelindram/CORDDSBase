@@ -94,12 +94,19 @@ def ask_vision(jpeg_base64: str):
         result = parse_json(raw)
         if not isinstance(result, dict):
             raise HTTPException(502, "Local vision agent returned invalid JSON. Raw response: " + repr(raw[:500]))
+        reason = str(result.get("reason", "vision agent decision"))
+        collision = bool(result.get("collision", False))
+        # Older LLaVA builds can occasionally emit a contradictory boolean while
+        # describing the visible contact correctly. Normalize those responses.
+        contact_words = ("touch", "touching", "contact", "collision", "colliding", "bumper", "crash")
+        if not collision and any(word in reason.lower() for word in contact_words):
+            collision = True
         return {
-            "collision": bool(result.get("collision", False)),
+            "collision": collision,
             "confidence": max(0.0, min(1.0, float(result.get("confidence", 0.0)))),
             "vehicle_count": max(0, int(result.get("vehicle_count", 0))),
             "vehicles": result.get("vehicles", []) if isinstance(result.get("vehicles", []), list) else [],
-            "reason": str(result.get("reason", "vision agent decision")),
+            "reason": reason,
             "model": VISION_MODEL,
         }
     except HTTPException:

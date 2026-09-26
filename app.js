@@ -20,20 +20,84 @@ function updateCounts(){$("cameraCount").textContent=S.cameras.size;$("alertCoun
 function cameraCard(id,name,video){let c=S.cameras.get(id);if(c?.card)return c.card;const card=document.createElement("div");card.className="cam";card.dataset.camera=id;const wrap=document.createElement("div");wrap.className="camVideoWrap";const overlay=document.createElement("canvas");overlay.className="overlay";wrap.appendChild(video);wrap.appendChild(overlay);const meta=document.createElement("div");meta.className="meta";meta.innerHTML="<b>"+escapeHtml(name)+"</b><span class=\"online\">● ONLINE</span>";const tools=document.createElement("div");tools.className="camTools";const ai=document.createElement("button");ai.textContent="AI DETECT";ai.onclick=()=>{showView("ai");$("aiCamera").value=id};tools.append(ai);const accidentStatus=document.createElement("span");accidentStatus.className="small";accidentStatus.textContent="ACCIDENT AI: "+(S.accidentApi?"MONITORING":"NOT CONFIGURED");tools.append(accidentStatus);if(S.role==="operator"){const remove=document.createElement("button");remove.textContent="REMOVE CAMERA";remove.className="dangerBtn";remove.onclick=()=>removeCamera(id,true);tools.append(remove)}const loc=document.createElement("span");loc.className="small";loc.textContent="GPS: waiting";tools.append(loc);card.append(wrap,meta,tools);$("remoteArea").appendChild(card);S.cameras.set(id,{id,name,video,overlay,card,loc,recorder:null,recordTimer:null,recording:false,accidentStatus:accidentStatus});refreshCameraSelect();updateCounts();if(video.readyState>=1)startRecording(id);else video.addEventListener("loadedmetadata",()=>startRecording(id),{once:true});return card}
 async function loadFaceBlur(){if(S.face.detector||S.face.loading)return S.face.detector;S.face.loading=true;try{const vision=await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision");const fileset=await vision.FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm");S.face.detector=await vision.FaceDetector.createFromOptions(fileset,{baseOptions:{modelAssetPath:"https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite",delegate:"CPU"},runningMode:"VIDEO",minDetectionConfidence:.35,minSuppressionThreshold:.3});return S.face.detector}catch(e){console.error("face blur",e);return null}finally{S.face.loading=false}}
 async function startRecording(id){
-const c=S.cameras.get(id);if(!c||c.recording)return;const video=c.video;const capture=video.captureStream?.bind(video)||video.mozCaptureStream?.bind(video);if(!capture){c.loc.textContent="Recording unavailable in this browser";return}
-const mime=["video/webm;codecs=vp9","video/webm;codecs=vp8","video/webm","video/mp4"].find(x=>MediaRecorder.isTypeSupported(x));if(!mime){c.loc.textContent="No supported recording format";return}
+const c=S.cameras.get(id);
+if(!c||c.recording)return;
+const video=c.video;
+const capture=video.captureStream?.bind(video)||video.mozCaptureStream?.bind(video);
+if(!capture){c.loc.textContent="Recording unavailable in this browser";return}
+const mime=["video/webm;codecs=vp9","video/webm;codecs=vp8","video/webm","video/mp4"].find(x=>MediaRecorder.isTypeSupported(x));
+if(!mime){c.loc.textContent="No supported recording format";return}
 const privacy=window.CORDDS_VIEW_ROLE==="operator";
 try{
-let stream,canvas,ctx,raf=0,faces=[],lastFaceTime=-1;
+let canvas=null,ctx=null,raf=0,faces=[],lastFaceTime=-1,detector=null;
 if(privacy){
-const detector=await loadFaceBlur();if(!detector){c.loc.textContent="Privacy recorder unavailable";return}
-canvas=document.createElement("canvas");canvas.width=video.videoWidth||1280;canvas.height=video.videoHeight||720;ctx=canvas.getContext("2d");stream=canvas.captureStream(30);c.recording=true;
-const render=()=>{if(!c.recording)return;ctx.filter="none";ctx.drawImage(video,0,0,canvas.width,canvas.height);if(video.readyState>=2&&video.currentTime!==lastFaceTime){try{lastFaceTime=video.currentTime;faces=(detector.detectForVideo(video,performance.now()).detections||[]).map(d=>d.boundingBox).filter(Boolean)}catch(e){}}for(const b of faces){const pad=Math.max(10,Math.round(Math.min(b.width,b.height)*.25));const sx=Math.max(0,b.originX-pad),sy=Math.max(0,b.originY-pad),sw=Math.min(canvas.width-sx,b.width+pad*2),sh=Math.min(canvas.height-sy,b.height+pad*2);ctx.save();ctx.filter="blur(20px)";ctx.drawImage(canvas,sx,sy,sw,sh,sx,sy,sw,sh);ctx.restore()}raf=requestAnimationFrame(render)};render();
-}else{stream=capture();c.recording=true}
+detector=await loadFaceBlur();
+if(!detector){c.loc.textContent="Privacy recorder unavailable";return}
+canvas=document.createElement("canvas");
+canvas.width=video.videoWidth||1280;
+canvas.height=video.videoHeight||720;
+ctx=canvas.getContext("2d");
+c.recording=true;
+const render=()=>{
+  if(!c.recording)return;
+  ctx.filter="none";
+  ctx.drawImage(video,0,0,canvas.width,canvas.height);
+  if(video.readyState>=2&&video.currentTime!==lastFaceTime){
+    try{
+      lastFaceTime=video.currentTime;
+      faces=(detector.detectForVideo(video,performance.now()).detections||[]).map(d=>d.boundingBox).filter(Boolean);
+    }catch(e){}
+  }
+  for(const b of faces){
+    const pad=Math.max(10,Math.round(Math.min(b.width,b.height)*.25));
+    const sx=Math.max(0,b.originX-pad),sy=Math.max(0,b.originY-pad);
+    const sw=Math.min(canvas.width-sx,b.width+pad*2),sh=Math.min(canvas.height-sy,b.height+pad*2);
+    ctx.save();ctx.filter="blur(20px)";ctx.drawImage(canvas,sx,sy,sw,sh,sx,sy,sw,sh);ctx.restore();
+  }
+  raf=requestAnimationFrame(render);
+};
+render();
+}else{
+  c.recording=true;
+}
 let chunks=[],started=Date.now();
-const begin=()=>{chunks=[];started=Date.now();c.recorder=new MediaRecorder(stream,{mimeType:mime});c.recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};c.recorder.onstop=async()=>{const blob=new Blob(chunks,{type:mime});if(blob.size>1000)await saveRecording({camera:c.name,started,ended:Date.now(),blob,type:mime});if(c.recording)begin()};c.recorder.start(1000);c.recordTimer=setTimeout(()=>{if(c.recorder?.state==="recording")c.recorder.stop()},SEGMENT_MS)};begin();
-}catch(e){c.recording=false;c.loc.textContent="Recording error: "+(e?.message||"unsupported recorder");console.warn("recording",e)}}
-
+const begin=async()=>{
+  if(!c.recording)return;
+  chunks=[];started=Date.now();
+  const stream=privacy?canvas.captureStream(30):capture();
+  if(!stream||!stream.getTracks().some(t=>t.readyState==="live")){
+    c.recording=false;
+    c.loc.textContent="Recording error: camera stream has no live tracks";
+    return;
+  }
+  try{
+    const recorder=new MediaRecorder(stream,{mimeType:mime});
+    c.recorder=recorder;
+    recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
+    recorder.onerror=e=>console.warn("recording",e);
+    recorder.onstop=async()=>{
+      clearTimeout(c.recordTimer);
+      const blob=new Blob(chunks,{type:mime});
+      stream.getTracks().forEach(t=>{try{t.stop()}catch(e){}});
+      if(blob.size>1000)await saveRecording({camera:c.name,started,ended:Date.now(),blob,type:mime});
+      if(c.recording)await begin();
+    };
+    recorder.start(1000);
+    c.recordTimer=setTimeout(()=>{if(recorder.state==="recording")recorder.stop()},SEGMENT_MS);
+  }catch(e){
+    stream.getTracks().forEach(t=>{try{t.stop()}catch(e){}});
+    c.recording=false;
+    c.loc.textContent="Recording error: "+(e?.message||"unsupported recorder");
+    console.warn("recording",e);
+  }
+};
+await begin();
+}catch(e){
+c.recording=false;
+if(raf)cancelAnimationFrame(raf);
+c.loc.textContent="Recording error: "+(e?.message||"unsupported recorder");
+console.warn("recording",e);
+}}
 function openDb(){return new Promise((resolve,reject)=>{if(S.db)return resolve(S.db);const r=indexedDB.open("corddsbase-storage",1);r.onupgradeneeded=()=>r.result.createObjectStore("segments",{keyPath:"id",autoIncrement:true});r.onsuccess=()=>{S.db=r.result;resolve(S.db)};r.onerror=()=>reject(r.error)})}
 async function saveRecording(x){try{const db=await openDb();await new Promise((res,rej)=>{const tx=db.transaction("segments","readwrite");tx.objectStore("segments").add(x);tx.oncomplete=res;tx.onerror=()=>rej(tx.error)});refreshStorage()}catch(e){console.warn("recording save",e)}}
 async function listRecordings(){const db=await openDb();return new Promise((res,rej)=>{const r=db.transaction("segments").objectStore("segments").getAll();r.onsuccess=()=>res(r.result.sort((a,b)=>b.started-a.started));r.onerror=()=>rej(r.error)})}

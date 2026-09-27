@@ -166,76 +166,69 @@ el.querySelectorAll("[data-clear]").forEach(b=>b.onclick=()=>clearCollision(b.da
 function renderAlerts(){renderCollisionControl();const el=$("alertsList");if(!S.alerts.length){el.className="list empty";el.textContent="No detection alerts yet.";return}el.className="list";el.innerHTML=S.alerts.map(a=>'<div class="alertItem"><div><strong>'+escapeHtml(a.label)+'</strong><div class="small">'+escapeHtml(a.camera)+' · '+Math.round(a.score*100)+'% confidence</div></div><span class="small">'+new Date(a.time).toLocaleTimeString()+'</span></div>').join("")}
 async function checkVisionAgent(){
 try{
-const permission=await loopbackPermission();
-if(permission==="denied"){S.ai.agentOnline=false;setVisionBadge("VISION AGENT: BLOCKED","");$("aiStatus").textContent="VISION AGENT BLOCKED · Chrome Apps on device permission is denied for this site";$("aiStatus").className="aiStatus error";$("toggleAi").disabled=true;return false}
 const r=await localAgentFetch(S.accidentApi+"/health",{cache:"no-store"});
 const h=await r.json();
 S.ai.agentOnline=!!h.ok;
-setVisionBadge(h.ok?"VISION AGENT: ONLINE":"VISION AGENT: OFFLINE",h.ok?"online":"");
-$("aiStatus").textContent=h.ok?"VISION AGENT ONLINE · watching connected cameras":"VISION AGENT OFFLINE · start the accident AI server";
+setVisionBadge(h.ok?"RT-DETR DETECTOR: ONLINE":"RT-DETR DETECTOR: OFFLINE",h.ok?"ready":"");
+$("aiStatus").textContent=h.ok
+  ?"RT-DETR ONLINE · "+h.model+" · CPU detector + tracking + collision geometry"
+  :"RT-DETR OFFLINE · "+(h.error||"detector unavailable");
 $("aiStatus").className="aiStatus "+(h.ok?"ready":"error");
 $("toggleAi").disabled=!h.ok;
 return h.ok;
 }catch(e){
 S.ai.agentOnline=false;
-setVisionBadge("VISION AGENT: OFFLINE","");
-$("aiStatus").textContent="VISION AGENT OFFLINE · "+(e.message||"server unavailable")+" · allow Apps on device for this site";
+setVisionBadge("RT-DETR DETECTOR: OFFLINE","");
+$("aiStatus").textContent="RT-DETR OFFLINE · "+(e.message||"server unavailable");
 $("aiStatus").className="aiStatus error";
 $("toggleAi").disabled=true;
 return false;
 }}
+
 function captureAgentFrame(video){
-const w=Math.min(512,video.videoWidth||512),h=Math.max(1,Math.round(w*(video.videoHeight||360)/(video.videoWidth||512)));
+const w=Math.min(960,video.videoWidth||960);
+const h=Math.max(1,Math.round(w*(video.videoHeight||540)/(video.videoWidth||960)));
 const canvas=document.createElement("canvas");canvas.width=w;canvas.height=h;
 canvas.getContext("2d",{alpha:false}).drawImage(video,0,0,w,h);
-return canvas.toDataURL("image/jpeg",0.6).split(",")[1];
+return canvas.toDataURL("image/jpeg",0.72).split(",")[1];
 }
-function motionGate(video,id){
-  const w=96,h=54;
-  let m=S.ai.motion.get(id);
-  if(!m){m={canvas:document.createElement("canvas"),ctx:null,prev:null,lastChange:0};m.canvas.width=w;m.canvas.height=h;m.ctx=m.canvas.getContext("2d",{willReadFrequently:true});S.ai.motion.set(id,m)}
-  m.ctx.drawImage(video,0,0,w,h);
-  const p=m.ctx.getImageData(0,0,w,h).data;
-  if(!m.prev){m.prev=new Uint8ClampedArray(p);return false}
-  let changed=0,total=0;
-  for(let i=0;i<p.length;i+=16){total++;const d=Math.abs(p[i]-m.prev[i])+Math.abs(p[i+1]-m.prev[i+1])+Math.abs(p[i+2]-m.prev[i+2]);if(d>45)changed++}
-  m.prev.set(p);
-  const ratio=changed/Math.max(1,total);
-  if(ratio>.008){m.lastChange=Date.now();return true}
-  return Date.now()-m.lastChange<12000;
-}
+
 async function sendVisionFrame(id){
 const c=S.cameras.get(id);
 if(!S.ai.running||!c||!c.video||c.video.readyState<2||S.ai.busy.get(id))return;
-if(!motionGate(c.video,id) && (Date.now()-(S.ai.lastInference.get(id)||0)<5000)){
-  c.accidentStatus&&(c.accidentStatus.textContent="ACCIDENT AI: MONITORING");
-  return;
-}
 const last=S.ai.lastInference.get(id)||0;
-if(Date.now()-last<15000)return;
+if(Date.now()-last<1200)return;
 S.ai.busy.set(id,true);
-$("aiStatus").textContent="VISION AGENT ONLINE · ANALYZING CAMERA FRAME…";
+$("aiStatus").textContent="RT-DETR ONLINE · DETECTING VEHICLES…";
 try{
 const jpeg=captureAgentFrame(c.video);
-const r=await localAgentFetch(S.accidentApi+"/frame",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({camera_id:id,timestamp:Date.now()/1000,jpeg_base64:jpeg})});
+const r=await localAgentFetch(S.accidentApi+"/frame",{
+method:"POST",
+headers:{"Content-Type":"application/json"},
+body:JSON.stringify({camera_id:id,timestamp:Date.now()/1000,jpeg_base64:jpeg})
+});
 const data=await r.json();
-if(!r.ok)throw new Error(data.detail||"vision agent request failed");
-c.accidentStatus&&(c.accidentStatus.textContent=data.collision_visible?"ACCIDENT AI: COLLISION VISIBLE":"ACCIDENT AI: MONITORING");
+if(!r.ok)throw new Error(data.detail||"detector request failed");
 const count=Number(data.vehicle_count||0);
-$("aiStatus").textContent="VISION AGENT ONLINE · "+S.cameras.size+" camera(s) · "+count+" vehicle(s) in latest frame";
+if(c.accidentStatus)c.accidentStatus.textContent=data.collision_visible
+  ?"COLLISION: CONFIRMED"
+  :(count?"VEHICLES: "+count:"VEHICLES: NONE");
+$("aiStatus").textContent="RT-DETR ONLINE · "+S.cameras.size+" camera(s) · "+count+" vehicle(s)";
 S.ai.lastInference.set(id,Date.now());
-if(data.accident)reportCollision(c,id,Number(data.confidence||0),data.reason||"Vision agent detected a collision");
+if(data.accident)reportCollision(c,id,Number(data.confidence||0),data.reason||"Tracked vehicles entered physical contact");
 }catch(e){
-console.warn("vision agent",e);
-c.accidentStatus&&(c.accidentStatus.textContent="ACCIDENT AI: RETRYING");
-S.ai.lastInference.set(id,Math.max(0,Date.now()-15000));
-$("aiStatus").textContent="VISION AGENT ONLINE · response slow; retrying";
+console.warn("RT-DETR detector",e);
+if(c.accidentStatus)c.accidentStatus.textContent="DETECTOR: RETRYING";
+S.ai.lastInference.set(id,Math.max(0,Date.now()-1200));
+$("aiStatus").textContent="RT-DETR ONLINE · detector retrying";
 }finally{S.ai.busy.set(id,false)}}
+
 function scheduleVision(id){
 if(!S.ai.running)return;
 clearTimeout(S.ai.timers.get(id));
-S.ai.timers.set(id,setTimeout(async()=>{await sendVisionFrame(id);scheduleVision(id)},500));
+S.ai.timers.set(id,setTimeout(async()=>{await sendVisionFrame(id);scheduleVision(id)},300));
 }
+
 async function startAIForCamera(id){
 if(!S.cameras.has(id))return;
 S.ai.cameras.set(id,true);

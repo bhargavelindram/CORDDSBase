@@ -10,7 +10,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 </head>
 <body>
-<header><b>CORDDSBASE</b><div class="headerStatus"><span id="visionAgentBadge">VISION AGENT: OFFLINE</span><span id="status">OFFLINE</span></div></header>
+<header><b>CORDDSBASE</b><div class="headerStatus"><span id="visionAgentBadge">RT-DETR DETECTOR: OFFLINE</span><span id="status">OFFLINE</span></div></header>
 
 <main id="gate">
 <section class="card">
@@ -70,13 +70,13 @@
 
 <section id="view-ai" class="view" hidden>
 <div class="panel">
-<div class="sectionHead"><div><h2>Vision Agent</h2><p>A background AI operator observes every connected camera without drawing anything over the live video.</p></div><button id="loadAi">CHECK AGENT</button></div>
+<div class="sectionHead"><div><h2>Vision Agent</h2><p>A real-time vehicle detector and tracker watches every connected camera without drawing anything over the live video.</p></div><button id="loadAi">CHECK AGENT</button></div>
 <div id="aiStatus" class="aiStatus">VISION AGENT OFFLINE.</div>
 <div class="aiGrid">
 <div><label>Detection camera</label><select id="aiCamera"><option value="">No camera selected</option></select></div>
 <div><label>Run agent</label><button id="toggleAi" disabled>START VISION AGENT</button></div>
 </div>
-<p class="small">The live camera view is never annotated. The background agent receives JPEG snapshots from every connected camera and decides whether a visible vehicle collision is present.</p>
+<p class="small">The live camera view is never annotated. RT-DETR detects cars, a tracker keeps persistent vehicle IDs, and collision geometry confirms physical contact across multiple frames.</p>
 </div>
 </section>
 
@@ -86,7 +86,7 @@
 <div class="setting"><span>Vision frame sampling</span><b>~10 checks/sec/camera</b></div>
 <div class="setting"><span>Recording segment length</span><b>2 minutes</b></div>
 <div class="setting"><span>Map</span><b>Leaflet + OpenStreetMap</b></div>
-<div class="setting"><span>Accident AI</span><div><b>VISION AGENT</b><div class="small">OpenAI vision model through the local accident AI server. No camera overlay.</div></div></div><div class="setting"><span>Collision decision</span><b>AI-visible vehicle contact</b></div><div class="setting"><span>Build</span><b>CORDDSBase 2.0</b></div>
+<div class="setting"><span>Accident AI</span><div><b>VISION AGENT</b><div class="small">RT-DETRv2-S INT8 through the local detector server. No camera overlay.</div></div></div><div class="setting"><span>Collision decision</span><b>Tracked vehicle physical contact</b></div><div class="setting"><span>Build</span><b>CORDDSBase 2.0</b></div>
 </div>
 </section>
 </section>
@@ -103,7 +103,7 @@ document.getElementById("loginSubmit").onclick=function(){var expected=role==="o
 pass.addEventListener("keydown",function(e){if(e.key==="Enter")document.getElementById("loginSubmit").click()});
 })();
 </script>
-<script src="app.js?v=20260926-recordfix4"></script>
+<script src="app.js?v=20260927-rtdetr-fix1"></script>
 <script>window.addEventListener("load",function(){if(!window.CORDDS_VIEW_ROLE){document.getElementById("gate").hidden=false;document.getElementById("app").hidden=true}});</script>
 </body>
 </html>

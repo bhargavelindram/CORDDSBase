@@ -1,15 +1,32 @@
-# CORDDSBase Accident AI
+# CORDDSBase Collision Detector
 
-This backend implements the high-quality CCTV pipeline: YOLO11x detection, BoT-SORT persistent tracking, candidate-window buffering, and Qwen3-VL-32B accident verification.
+CORDDSBase now uses a dedicated vehicle-detection pipeline instead of a general-purpose vision-language model.
 
-## Run
-Install Python 3.10+ and requirements.txt. A CUDA-capable GPU is strongly recommended.
+## Pipeline
 
-Serve Qwen3-VL with an OpenAI-compatible vision endpoint, then set VLM_URL and VLM_MODEL if needed.
+1. RT-DETRv2-S INT8 detects COCO `car` objects.
+2. A lightweight persistent tracker assigns vehicle IDs between frames.
+3. Bounding-box gap/overlap and approach geometry are evaluated.
+4. Physical contact must persist for multiple frames before an alert is generated.
 
-Start the API with:
-uvicorn server:app --host 0.0.0.0 --port 8010
+The detector runs locally through ONNX Runtime CPU inference. No Ollama, LLaVA, Qwen, or paid AI service is required.
 
-The website sends JPEG samples to POST /frame. The backend only asks the VLM to inspect a short sequence when persistent tracked vehicles enter a collision candidate window.
+## Mac
 
-This is intentionally separate from GitHub Pages because YOLO11x and Qwen3-VL-32B are too large for practical browser-only inference.
+Use:
+
+```bash
+cd accident_ai
+./start_backend_mac.sh
+```
+
+The first startup downloads the 32.7 MB RT-DETRv2-S INT8 ONNX model and verifies its SHA-256 checksum.
+
+The model is RT-DETRv2-S INT8, a compact CPU-oriented RT-DETR model. The published model documentation reports 45.7 AP on COCO and a 32.7 MB model size. The detector accepts 640x640 RGB input and returns normalized boxes and class logits.
+
+The website sends JPEG snapshots to `POST /frame`.
+
+## API
+
+- `GET /health` — loads/verifies the detector and reports status.
+- `POST /frame` — detects cars, updates tracks, checks collision geometry, and returns vehicle/tracking data plus an alert when contact is confirmed.

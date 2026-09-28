@@ -1,150 +1,38 @@
 (()=>{"use strict";
 const $=id=>document.getElementById(id);
 const DEFAULT_TOKEN="corddsbase-vzgr9t";
+const YOLO_THRESHOLD=.20;
+const YOLO_MODEL="https://huggingface.co/webnn/yolo11n/resolve/main/onnx/yolo11n.onnx?download=true";
 const SEGMENT_MS=120000;
-const S={room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),collisions:new Map(),removedCameras:new Set(),ai:{running:false,cameras:new Map(),timers:new Map(),busy:new Map(),frames:new Map(),agentOnline:false,motion:new Map(),lastInference:new Map()},map:null,watchId:null,db:null,connecting:false,connectionKey:"",audioCtx:null,accidentApi:"http://127.0.0.1:8000",face:{detector:null,loading:false}};
-function localAgentFetch(url,options={}){const opts={...options};if("targetAddressSpace" in Request.prototype)opts.targetAddressSpace="loopback";return fetch(url,opts)}
-async function loopbackPermission(){try{if(navigator.permissions?.query){const p=await navigator.permissions.query({name:"loopback-network"});return p.state}}catch(e){}return "unknown"}
+const S={room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),collisions:new Map(),removedCameras:new Set(),ai:{session:null,loading:false,running:false,cameras:new Map(),timers:new Map(),ort:null},map:null,watchId:null,db:null};
 const COCO=["person","bicycle","car","motorcycle","airplane","bus","train","truck","boat","traffic light","fire hydrant","stop sign","parking meter","bench","bird","cat","dog","horse","sheep","cow","elephant","bear","zebra","giraffe","backpack","umbrella","handbag","tie","suitcase","frisbee","skis","snowboard","sports ball","kite","baseball bat","baseball glove","skateboard","surfboard","tennis racket","bottle","wine glass","cup","fork","knife","spoon","bowl","banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake","chair","couch","potted plant","bed","dining table","toilet","tv","laptop","mouse","remote","keyboard","cell phone","microwave","oven","toaster","sink","refrigerator","book","clock","vase","scissors","teddy bear","hair drier","toothbrush"];
-function setStatus(t){$("status").textContent=t}function setVisionBadge(t,mode=""){const b=$("visionAgentBadge");if(b){b.textContent=t;b.className=mode}}
+function setStatus(t){$("status").textContent=t}
 function identity(p){return p+"-"+Math.random().toString(36).slice(2,10)}
 function tokenSource(){if(!window.LivekitClient)throw Error("LiveKit SDK did not load. Refresh the page.");if(!LivekitClient.TokenSource?.developmentTokenServer)throw Error("LiveKit TokenSource API is unavailable. Refresh the page.");return LivekitClient.TokenSource.developmentTokenServer(DEFAULT_TOKEN)}
 function sendData(obj){if(!S.room?.localParticipant)return;try{const bytes=new TextEncoder().encode(JSON.stringify(obj));S.room.localParticipant.publishData(bytes,{reliable:true})}catch(e){console.warn("data publish",e)}}
 function showApp(role){$("gate").hidden=true;$("app").hidden=false;S.role=role;$("operatorPanel").hidden=role!=="operator";$("cameraPanel").hidden=role!=="camera";$("title").textContent=role==="operator"?"Cameras":"Camera";setStatus(role.toUpperCase())}
-function showView(view){document.querySelectorAll(".view").forEach(v=>v.hidden=v.id!=="view-"+view);document.querySelectorAll(".nav").forEach(b=>b.classList.toggle("active",b.dataset.view===view));const names={cameras:"Cameras",map:"Live Map",alerts:"Alerts",storage:"Video Storage",ai:"Vision Agent",settings:"Settings"};$("title").textContent=names[view];if(view==="map"&&S.map)setTimeout(()=>S.map.invalidateSize(),50);if(view==="storage")refreshStorage()}
+function showView(view){document.querySelectorAll(".view").forEach(v=>v.hidden=v.id!=="view-"+view);document.querySelectorAll(".nav").forEach(b=>b.classList.toggle("active",b.dataset.view===view));const names={cameras:"Cameras",map:"Live Map",alerts:"Alerts",storage:"Video Storage",ai:"YOLO11 Detection",settings:"Settings"};$("title").textContent=names[view];if(view==="map"&&S.map)setTimeout(()=>S.map.invalidateSize(),50);if(view==="storage")refreshStorage()}
 function initMap(){if(S.map||!window.L)return;S.map=L.map("map").setView([20,0],2);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(S.map)}
 function upsertMarker(id,lat,lon,name){initMap();if(!S.map)return;let m=S.markers.get(id);if(!m){m=L.marker([lat,lon]).addTo(S.map);m.bindPopup(name);S.markers.set(id,m)}else m.setLatLng([lat,lon]);m.setPopupContent("<b>"+escapeHtml(name)+"</b><br>"+lat.toFixed(5)+", "+lon.toFixed(5))}
 function escapeHtml(v){return String(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]))}
 function refreshCameraSelect(){const s=$("aiCamera"),old=s.value;s.innerHTML='<option value="">No camera selected</option>';for(const [id,c] of S.cameras){const o=document.createElement("option");o.value=id;o.textContent=c.name||id;s.appendChild(o)}if(S.cameras.has(old))s.value=old}
 function updateCounts(){$("cameraCount").textContent=S.cameras.size;$("alertCount").textContent=S.alerts.length}
-function cameraCard(id,name,video){let c=S.cameras.get(id);if(c?.card)return c.card;const card=document.createElement("div");card.className="cam";card.dataset.camera=id;const wrap=document.createElement("div");wrap.className="camVideoWrap";const overlay=document.createElement("canvas");overlay.className="overlay";wrap.appendChild(video);wrap.appendChild(overlay);const meta=document.createElement("div");meta.className="meta";meta.innerHTML="<b>"+escapeHtml(name)+"</b><span class=\"online\">● ONLINE</span>";const tools=document.createElement("div");tools.className="camTools";const ai=document.createElement("button");ai.textContent="AI DETECT";ai.onclick=()=>{showView("ai");$("aiCamera").value=id};tools.append(ai);const accidentStatus=document.createElement("span");accidentStatus.className="small";accidentStatus.textContent="ACCIDENT AI: "+(S.accidentApi?"MONITORING":"NOT CONFIGURED");tools.append(accidentStatus);if(S.role==="operator"){const remove=document.createElement("button");remove.textContent="REMOVE CAMERA";remove.className="dangerBtn";remove.onclick=()=>removeCamera(id,true);tools.append(remove)}const loc=document.createElement("span");loc.className="small";loc.textContent="GPS: waiting";tools.append(loc);card.append(wrap,meta,tools);$("remoteArea").appendChild(card);S.cameras.set(id,{id,name,video,overlay,card,loc,recorder:null,recordTimer:null,recording:false,accidentStatus:accidentStatus});refreshCameraSelect();updateCounts();if(video.readyState>=1)startRecording(id);else video.addEventListener("loadedmetadata",()=>startRecording(id),{once:true});return card}
-async function loadFaceBlur(){if(S.face.detector||S.face.loading)return S.face.detector;S.face.loading=true;try{const vision=await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision");const fileset=await vision.FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm");S.face.detector=await vision.FaceDetector.createFromOptions(fileset,{baseOptions:{modelAssetPath:"https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite",delegate:"CPU"},runningMode:"VIDEO",minDetectionConfidence:.35,minSuppressionThreshold:.3});return S.face.detector}catch(e){console.error("face blur",e);return null}finally{S.face.loading=false}}
-async function startRecording(id){
-const c=S.cameras.get(id);
-if(!c||c.recording)return;
-const video=c.video;
-if(!video){c.loc.textContent="Recording unavailable: camera video missing";return}
-const privacy=window.CORDDS_VIEW_ROLE==="operator";
-try{
-  let canvas=document.createElement("canvas"),ctx=canvas.getContext("2d"),raf=0,faces=[],lastFaceTime=-1,detector=null;
-  canvas.width=video.videoWidth||1280;
-  canvas.height=video.videoHeight||720;
-  if(!canvas.width||!canvas.height){c.loc.textContent="Recording unavailable: video has no dimensions";return}
-  if(privacy){
-    detector=await loadFaceBlur();
-    if(!detector){c.loc.textContent="Privacy recorder unavailable";return}
-  }
-  c.recording=true;
-  const render=()=>{
-    if(!c.recording)return;
-    try{
-      ctx.filter="none";
-      ctx.drawImage(video,0,0,canvas.width,canvas.height);
-      if(privacy&&video.readyState>=2&&video.currentTime!==lastFaceTime){
-        try{
-          lastFaceTime=video.currentTime;
-          faces=(detector.detectForVideo(video,performance.now()).detections||[]).map(d=>d.boundingBox).filter(Boolean);
-        }catch(e){}
-      }
-      if(privacy)for(const b of faces){
-        const pad=Math.max(10,Math.round(Math.min(b.width,b.height)*.25));
-        const sx=Math.max(0,b.originX-pad),sy=Math.max(0,b.originY-pad);
-        const sw=Math.min(canvas.width-sx,b.width+pad*2),sh=Math.min(canvas.height-sy,b.height+pad*2);
-        ctx.save();ctx.filter="blur(20px)";ctx.drawImage(canvas,sx,sy,sw,sh,sx,sy,sw,sh);ctx.restore();
-      }
-    }catch(e){console.warn("recording render",e)}
-    raf=requestAnimationFrame(render);
-  };
-  render();
-
-  let chunks=[],started=Date.now();
-  const mimeTypes=["video/webm;codecs=vp8","video/webm;codecs=vp9","video/webm"];
-  const begin=async()=>{
-    if(!c.recording)return;
-    chunks=[];started=Date.now();
-    const stream=canvas.captureStream(30);
-    const track=stream.getVideoTracks()[0];
-    if(!track||track.readyState!=="live"){
-      c.recording=false;c.loc.textContent="Recording error: canvas video track unavailable";return;
-    }
-    let recorder=null,lastError=null;
-    for(const type of mimeTypes){
-      if(!MediaRecorder.isTypeSupported(type))continue;
-      try{
-        recorder=new MediaRecorder(stream,{mimeType:type});
-        recorder.start(1000);
-        lastError=null;
-        break;
-      }catch(e){lastError=e;recorder=null}
-    }
-    if(!recorder){
-      stream.getTracks().forEach(t=>t.stop());
-      c.recording=false;
-      c.loc.textContent="Recording error: MediaRecorder could not start";
-      console.warn("recording",lastError);
-      return;
-    }
-    c.recorder=recorder;
-    const usedMime=recorder.mimeType||"video/webm";
-    recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
-    recorder.onerror=e=>console.warn("recording",e);
-    recorder.onstop=async()=>{
-      clearTimeout(c.recordTimer);
-      stream.getTracks().forEach(t=>{try{t.stop()}catch(e){}});
-      const blob=new Blob(chunks,{type:usedMime});
-      if(blob.size>1000)await saveRecording({camera:c.name,started,ended:Date.now(),blob,type:usedMime});
-      if(c.recording)await begin();
-    };
-    c.recordTimer=setTimeout(()=>{if(recorder.state==="recording")recorder.stop()},SEGMENT_MS);
-  };
-  await begin();
-}catch(e){
-  c.recording=false;
-  if(raf)cancelAnimationFrame(raf);
-  c.loc.textContent="Recording error: "+(e?.message||"unsupported recorder");
-  console.warn("recording",e);
-}}
+function cameraCard(id,name,video){let c=S.cameras.get(id);if(c?.card)return c.card;const card=document.createElement("div");card.className="cam";card.dataset.camera=id;const wrap=document.createElement("div");wrap.className="camVideoWrap";const overlay=document.createElement("canvas");overlay.className="overlay";wrap.appendChild(video);wrap.appendChild(overlay);const meta=document.createElement("div");meta.className="meta";meta.innerHTML="<b>"+escapeHtml(name)+"</b><span class=\"online\">● ONLINE</span>";const tools=document.createElement("div");tools.className="camTools";const ai=document.createElement("button");ai.textContent="AI DETECT";ai.onclick=()=>{showView("ai");$("aiCamera").value=id};tools.append(ai);if(S.role==="operator"){const remove=document.createElement("button");remove.textContent="REMOVE CAMERA";remove.className="dangerBtn";remove.onclick=()=>removeCamera(id,true);tools.append(remove)}const loc=document.createElement("span");loc.className="small";loc.textContent="GPS: waiting";tools.append(loc);card.append(wrap,meta,tools);$("remoteArea").appendChild(card);S.cameras.set(id,{id,name,video,overlay,card,loc,recorder:null,recordTimer:null,recording:false});refreshCameraSelect();updateCounts();if(video.readyState>=1)startRecording(id);else video.addEventListener("loadedmetadata",()=>startRecording(id),{once:true});return card}
+async function startRecording(id){const c=S.cameras.get(id);if(!c||c.recording)return;const video=c.video;const capture=video.captureStream?.bind(video)||video.mozCaptureStream?.bind(video);if(!capture){c.loc.textContent="Recording unavailable in this browser";return}const mime=["video/webm;codecs=vp9","video/webm;codecs=vp8","video/webm","video/mp4"].find(x=>MediaRecorder.isTypeSupported(x));if(!mime){c.loc.textContent="No supported recording format";return}
+try{const stream=capture();let chunks=[];let started=Date.now();const begin=()=>{chunks=[];started=Date.now();c.recording=true;c.recorder=new MediaRecorder(stream,{mimeType:mime});c.recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};c.recorder.onstop=async()=>{const blob=new Blob(chunks,{type:mime});if(blob.size>1000)await saveRecording({camera:c.name,started,ended:Date.now(),blob,type:mime});if(c.recording)begin()};c.recorder.start(1000);c.recordTimer=setTimeout(()=>{if(c.recorder?.state==="recording")c.recorder.stop()},SEGMENT_MS)};begin()}catch(e){c.loc.textContent="Recording error"}}
 function openDb(){return new Promise((resolve,reject)=>{if(S.db)return resolve(S.db);const r=indexedDB.open("corddsbase-storage",1);r.onupgradeneeded=()=>r.result.createObjectStore("segments",{keyPath:"id",autoIncrement:true});r.onsuccess=()=>{S.db=r.result;resolve(S.db)};r.onerror=()=>reject(r.error)})}
 async function saveRecording(x){try{const db=await openDb();await new Promise((res,rej)=>{const tx=db.transaction("segments","readwrite");tx.objectStore("segments").add(x);tx.oncomplete=res;tx.onerror=()=>rej(tx.error)});refreshStorage()}catch(e){console.warn("recording save",e)}}
 async function listRecordings(){const db=await openDb();return new Promise((res,rej)=>{const r=db.transaction("segments").objectStore("segments").getAll();r.onsuccess=()=>res(r.result.sort((a,b)=>b.started-a.started));r.onerror=()=>rej(r.error)})}
 async function refreshStorage(){const list=$("storageList");const rows=await listRecordings();$("recordingCount").textContent=rows.length;if(!rows.length){list.className="list empty";list.textContent="No recordings yet.";return}list.className="list";list.innerHTML="";for(const x of rows){const item=document.createElement("div");item.className="recordItem";const meta=document.createElement("div");meta.className="recordMeta";meta.innerHTML="<b>"+escapeHtml(x.camera)+"</b><span>"+new Date(x.started).toLocaleString()+" · 2-minute segment</span>";const actions=document.createElement("div");actions.className="recordActions";const dl=document.createElement("button");dl.textContent="DOWNLOAD";dl.onclick=()=>{const u=URL.createObjectURL(x.blob);const a=document.createElement("a");a.href=u;a.download="CORDDS_"+x.camera.replace(/\W+/g,"_")+"_"+x.started+"."+((x.type||"").includes("mp4")?"mp4":"webm");a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)};const del=document.createElement("button");del.textContent="DELETE";del.onclick=async()=>{const db=await openDb();await new Promise((res,rej)=>{const tx=db.transaction("segments","readwrite");tx.objectStore("segments").delete(x.id);tx.oncomplete=res;tx.onerror=()=>rej(tx.error)});refreshStorage()};actions.append(dl,del);item.append(meta,actions);list.appendChild(item)}}
-function unlockAlertAudio(){try{if(!S.audioCtx)S.audioCtx=new (window.AudioContext||window.webkitAudioContext)();if(S.audioCtx.state==="suspended")S.audioCtx.resume()}catch(e){console.warn("alert audio",e)}}
-function setAccidentApi(url){S.accidentApi=(url||"").trim().replace(/\/$/,"");if(S.accidentApi)localStorage.setItem("cordds_accident_api",S.accidentApi);const el=$("accidentApiStatus");if(el)el.textContent=S.accidentApi?"ACCIDENT AI BACKEND CONFIGURED":"ACCIDENT AI BACKEND NOT CONFIGURED"}
-async function sendAccidentFrame(id){
-  const c=S.cameras.get(id);if(!c||!S.accidentApi||!c.video||c.video.readyState<2)return;
-  if(c.accidentBusy)return;c.accidentBusy=true;
-  try{
-    const canvas=document.createElement("canvas"),vw=c.video.videoWidth||640,vh=c.video.videoHeight||360;
-    const scale=Math.min(960/vw,540/vh);canvas.width=Math.max(1,Math.round(vw*scale));canvas.height=Math.max(1,Math.round(vh*scale));
-    canvas.getContext("2d").drawImage(c.video,0,0,canvas.width,canvas.height);
-    const b64=canvas.toDataURL("image/jpeg",.72).split(",")[1];
-    const r=await localAgentFetch(S.accidentApi+"/frame",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({camera_id:id,timestamp:Date.now()/1000,jpeg_base64:b64})});
-    if(!r.ok)throw Error("backend "+r.status);const data=await r.json();
-    c.remoteTracks=data.tracks||[];
-    if(data.accident){reportCollision(c,"AI-"+Math.floor(Date.now()/8000),Math.max(.20,Math.min(.99,Number(data.confidence)||.20)));}
-    if(c.accidentStatus)c.accidentStatus.textContent=data.accident?"ACCIDENT CONFIRMED · "+Math.round(data.confidence*100)+"%":"AI MONITORING · "+Math.round((Number(data.confidence)||0)*100)+"%";
-  }catch(e){if(c.accidentStatus)c.accidentStatus.textContent="ACCIDENT AI OFFLINE";}
-  finally{c.accidentBusy=false;}
-}
-function startAccidentAIForCamera(id){const c=S.cameras.get(id);if(!c||!S.accidentApi||c.accidentTimer)return;const loop=()=>{if(!c.accidentTimer)return;sendAccidentFrame(id).finally(()=>{if(c.accidentTimer)requestAnimationFrame(loop)})};c.accidentTimer=true;loop()}
-function stopAccidentAIForCamera(id){const c=S.cameras.get(id);if(c)c.accidentTimer=null}
-function playAlertSound(){try{unlockAlertAudio();const ctx=S.audioCtx;if(!ctx)return;const now=ctx.currentTime;const osc=ctx.createOscillator(),gain=ctx.createGain();osc.type="square";osc.frequency.setValueAtTime(880,now);osc.frequency.setValueAtTime(660,now+.10);gain.gain.setValueAtTime(.0001,now);gain.gain.exponentialRampToValueAtTime(.18,now+.015);gain.gain.exponentialRampToValueAtTime(.0001,now+.28);osc.connect(gain);gain.connect(ctx.destination);osc.start(now);osc.stop(now+.30)}catch(e){console.warn("alert sound",e)}}
 function addAlert(camera,label,score){const key=camera+"|"+label;const now=Date.now();const last=S.alertCooldown.get(key)||0;if(now-last<10000)return;S.alertCooldown.set(key,now);const a={camera,label,score,time:now};S.alerts.unshift(a);S.alerts=S.alerts.slice(0,200);updateCounts();renderAlerts()}
-function reportCollision(c,pairKey,score,reason){
+function reportCollision(c,pairKey,score){
 const id=c.id+"|"+pairKey;
 const now=Date.now();
 const existing=S.collisions.get(id);
-if(existing&&now-existing.lastSeen<8000){
-  existing.lastSeen=now;
-  existing.score=Math.max(existing.score,score);
-  return;
-}
+if(existing&&now-existing.lastSeen<5000){existing.lastSeen=now;existing.score=Math.max(existing.score,score);return}
 const incident={id,camera:c.name||"Camera",score,time:now,lastSeen:now,status:"ACTIVE"};
 S.collisions.set(id,incident);
-setVisionBadge("VISION AGENT: COLLISION","alert");
-setTimeout(()=>{if(S.ai.agentOnline)setVisionBadge("VISION AGENT: ONLINE","online")},3500);
-addAlert(c.name||"Camera","VEHICLE COLLISION"+(reason?" · "+reason:""),score);
-playAlertTone();
+addAlert(c.name||"Camera","VEHICLE COLLISION",score);
 renderCollisionControl();
 }
 function acknowledgeCollision(id){
@@ -164,95 +52,90 @@ el.querySelectorAll("[data-ack]").forEach(b=>b.onclick=()=>acknowledgeCollision(
 el.querySelectorAll("[data-clear]").forEach(b=>b.onclick=()=>clearCollision(b.dataset.clear));
 }
 function renderAlerts(){renderCollisionControl();const el=$("alertsList");if(!S.alerts.length){el.className="list empty";el.textContent="No detection alerts yet.";return}el.className="list";el.innerHTML=S.alerts.map(a=>'<div class="alertItem"><div><strong>'+escapeHtml(a.label)+'</strong><div class="small">'+escapeHtml(a.camera)+' · '+Math.round(a.score*100)+'% confidence</div></div><span class="small">'+new Date(a.time).toLocaleTimeString()+'</span></div>').join("")}
-async function checkVisionAgent(){
-try{
-const r=await localAgentFetch(S.accidentApi+"/health",{cache:"no-store"});
-const h=await r.json();
-S.ai.agentOnline=!!h.ok;
-setVisionBadge(h.ok?"RT-DETR DETECTOR: ONLINE":"RT-DETR DETECTOR: OFFLINE",h.ok?"ready":"");
-$("aiStatus").textContent=h.ok
-  ?"RT-DETR ONLINE · "+h.model+" · CPU detector + tracking + collision geometry"
-  :"RT-DETR OFFLINE · "+(h.error||"detector unavailable");
-$("aiStatus").className="aiStatus "+(h.ok?"ready":"error");
-$("toggleAi").disabled=!h.ok;
-return h.ok;
-}catch(e){
-S.ai.agentOnline=false;
-setVisionBadge("RT-DETR DETECTOR: OFFLINE","");
-$("aiStatus").textContent="RT-DETR OFFLINE · "+(e.message||"server unavailable");
-$("aiStatus").className="aiStatus error";
-$("toggleAi").disabled=true;
-return false;
-}}
+async function loadAI(){if(S.ai.loading||S.ai.session)return;S.ai.loading=true;$("loadAi").disabled=true;$("aiStatus").textContent="Loading YOLO11n engine…";$("aiStatus").className="aiStatus";try{const ort=await import("https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/+esm");S.ai.ort=ort;S.ai.session=await ort.InferenceSession.create(YOLO_MODEL,{executionProviders:["wasm"],graphOptimizationLevel:"all"});$("aiStatus").textContent="YOLO11 ONLINE · automatic detection enabled · ≥20% confidence";$("aiStatus").className="aiStatus ready";for(const id of S.cameras.keys())startAIForCamera(id)}catch(e){console.error("YOLO11 load",e);S.ai.session=null;$("aiStatus").textContent="YOLO11 load failed: "+(e.message||e);$("aiStatus").className="aiStatus error"}finally{S.ai.loading=false}}
+function letterbox(video,size=640){const vw=video.videoWidth||640,vh=video.videoHeight||360,scale=Math.min(size/vw,size/vh),nw=Math.max(1,Math.round(vw*scale)),nh=Math.max(1,Math.round(vh*scale));const canvas=document.createElement("canvas");canvas.width=size;canvas.height=size;const ctx=canvas.getContext("2d",{willReadFrequently:true});ctx.fillStyle="#000";ctx.fillRect(0,0,size,size);const dx=Math.floor((size-nw)/2),dy=Math.floor((size-nh)/2);ctx.drawImage(video,0,0,vw,vh,dx,dy,nw,nh);return{canvas,scale,dx,dy,vw,vh}}
+function tensorFromCanvas(canvas){const im=canvas.getContext("2d",{willReadFrequently:true}).getImageData(0,0,canvas.width,canvas.height).data;const area=canvas.width*canvas.height,chw=new Float32Array(area*3);for(let p=0;p<area;p++){chw[p]=im[p*4]/255;chw[area+p]=im[p*4+1]/255;chw[2*area+p]=im[p*4+2]/255}return new S.ai.ort.Tensor("float32",chw,[1,3,canvas.height,canvas.width])}
+function iou(a,b){const x1=Math.max(a.xmin,b.xmin),y1=Math.max(a.ymin,b.ymin),x2=Math.min(a.xmax,b.xmax),y2=Math.min(a.ymax,b.ymax),inter=Math.max(0,x2-x1)*Math.max(0,y2-y1),aa=Math.max(0,a.xmax-a.xmin)*Math.max(0,a.ymax-a.ymin),ab=Math.max(0,b.xmax-b.xmin)*Math.max(0,b.ymax-b.ymin);return inter/(aa+ab-inter||1)}
+function nms(dets,limit=.45){const out=[],sorted=[...dets].sort((a,b)=>b.score-a.score);while(sorted.length){const best=sorted.shift();out.push(best);for(let i=sorted.length-1;i>=0;i--)if(sorted[i].label===best.label&&iou(sorted[i].box,best.box)>limit)sorted.splice(i,1)}return out}
+function drawDetections(c,dets){
+const v=c.video,canvas=c.overlay;
+if(!v||!canvas)return;
+const w=v.videoWidth||640,h=v.videoHeight||360;
+if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h}
+const ctx=canvas.getContext("2d");
+ctx.clearRect(0,0,w,h);
+ctx.lineWidth=Math.max(2,Math.round(w/500));
+ctx.font="700 "+Math.max(14,Math.round(w/65))+"px Arial";
+const cars=dets.filter(d=>d.label==="car");
+for(const d of dets){
+const x=d.box.xmin,y=d.box.ymin,bw=d.box.xmax-d.box.xmin,bh=d.box.ymax-d.box.ymin;
+ctx.strokeStyle="#ff0000";
+ctx.strokeRect(x,y,bw,bh);
+const label=d.label+" "+Math.round(d.score*100)+"%";
+const tw=ctx.measureText(label).width+12,th=24;
+ctx.fillStyle="#ff0000";
+ctx.fillRect(x,Math.max(0,y-th),tw,th);
+ctx.fillStyle="#ffffff";
+ctx.fillText(label,x+6,Math.max(17,y-6));
+}
+if(!c.collisionPairs)c.collisionPairs=new Map();
+const seenPairs=new Set();
+if(cars.length>=2){
+for(let i=0;i<cars.length;i++)for(let j=i+1;j<cars.length;j++){
+const a=cars[i].box,b=cars[j].box;
+const overlap=iou(a,b);
+const smaller=Math.max(1,Math.min(
+Math.max(1,(a.xmax-a.xmin)*(a.ymax-a.ymin)),
+Math.max(1,(b.xmax-b.xmin)*(b.ymax-b.ymin))
+));
+const x1=Math.max(a.xmin,b.xmin),y1=Math.max(a.ymin,b.ymin);
+const x2=Math.min(a.xmax,b.xmax),y2=Math.min(a.ymax,b.ymax);
+const intersection=Math.max(0,x2-x1)*Math.max(0,y2-y1);
+const penetration=intersection/smaller;
+const acx=(a.xmin+a.xmax)/2,acy=(a.ymin+a.ymax)/2;
+const bcx=(b.xmin+b.xmax)/2,bcy=(b.ymin+b.ymax)/2;
+const distance=Math.hypot(acx-bcx,acy-bcy)/Math.max(w,h);
+const pairKey=[i,j].join(":");
+seenPairs.add(pairKey);
+const previous=c.collisionPairs.get(pairKey);
+const closing=previous?distance<previous.distance-0.004:false;
 
-function captureAgentFrame(video){
-const w=Math.min(960,video.videoWidth||960);
-const h=Math.max(1,Math.round(w*(video.videoHeight||540)/(video.videoWidth||960)));
-const canvas=document.createElement("canvas");canvas.width=w;canvas.height=h;
-canvas.getContext("2d",{alpha:false}).drawImage(video,0,0,w,h);
-return canvas.toDataURL("image/jpeg",0.72).split(",")[1];
+// A collision requires real box penetration, not merely nearby centers.
+// It must also be moving together across frames and persist for 2 detections.
+const contact=overlap>0.01&&penetration>0.22&&closing;
+let streak=previous?.streak||0;
+streak=contact?streak+1:0;
+c.collisionPairs.set(pairKey,{distance,streak});
+if(streak>=2){
+reportCollision(c,pairKey,Math.max(cars[i].score,cars[j].score));
+ctx.strokeStyle="#ffffff";
+ctx.lineWidth=Math.max(4,Math.round(w/250));
+const x=Math.min(a.xmin,b.xmin),y=Math.min(a.ymin,b.ymin),x3=Math.max(a.xmax,b.xmax),y3=Math.max(a.ymax,b.ymax);
+ctx.strokeRect(x,y,x3-x,y3-y);
 }
-
-async function sendVisionFrame(id){
-const c=S.cameras.get(id);
-if(!S.ai.running||!c||!c.video||c.video.readyState<2||S.ai.busy.get(id))return;
-const last=S.ai.lastInference.get(id)||0;
-if(Date.now()-last<1200)return;
-S.ai.busy.set(id,true);
-$("aiStatus").textContent="RT-DETR ONLINE · DETECTING VEHICLES…";
-try{
-const jpeg=captureAgentFrame(c.video);
-const r=await localAgentFetch(S.accidentApi+"/frame",{
-method:"POST",
-headers:{"Content-Type":"application/json"},
-body:JSON.stringify({camera_id:id,timestamp:Date.now()/1000,jpeg_base64:jpeg})
-});
-const data=await r.json();
-if(!r.ok)throw new Error(data.detail||"detector request failed");
-const count=Number(data.vehicle_count||0);
-if(c.accidentStatus)c.accidentStatus.textContent=data.collision_visible
-  ?"COLLISION: CONFIRMED"
-  :(count?"VEHICLES: "+count:"VEHICLES: NONE");
-$("aiStatus").textContent="RT-DETR ONLINE · "+S.cameras.size+" camera(s) · "+count+" vehicle(s)";
-S.ai.lastInference.set(id,Date.now());
-if(data.accident)reportCollision(c,id,Number(data.confidence||0),data.reason||"Tracked vehicles entered physical contact");
-}catch(e){
-console.warn("RT-DETR detector",e);
-if(c.accidentStatus)c.accidentStatus.textContent="DETECTOR: RETRYING";
-S.ai.lastInference.set(id,Math.max(0,Date.now()-1200));
-$("aiStatus").textContent="RT-DETR ONLINE · detector retrying";
-}finally{S.ai.busy.set(id,false)}}
-
-function scheduleVision(id){
-if(!S.ai.running)return;
-clearTimeout(S.ai.timers.get(id));
-S.ai.timers.set(id,setTimeout(async()=>{await sendVisionFrame(id);scheduleVision(id)},300));
 }
-
-async function startAIForCamera(id){
-if(!S.cameras.has(id))return;
-S.ai.cameras.set(id,true);
-if(!S.ai.running)S.ai.running=true;
-scheduleVision(id);
 }
-function stopAIForCamera(id){
-S.ai.cameras.delete(id);clearTimeout(S.ai.timers.get(id));S.ai.timers.delete(id);S.ai.busy.delete(id);
-if(!S.ai.cameras.size)S.ai.running=false;
+for(const key of c.collisionPairs.keys())if(!seenPairs.has(key))c.collisionPairs.delete(key);
 }
-async function startAI(){
-if(!(await checkVisionAgent()))return;
-S.ai.running=true;
-for(const id of S.cameras.keys())startAIForCamera(id);
-$("toggleAi").textContent="PAUSE VISION AGENT";
+function decodeYOLO(output,meta){const data=output.data,dims=output.dims,channels=dims[1],count=dims[2],transposed=channels!==84,attrs=transposed?count:channels,n=transposed?channels:count;const get=(a,c)=>transposed?data[c*attrs+a]:data[a*n+c];const dets=[];for(let c=0;c<n;c++){let score=0,cls=-1;for(let a=4;a<attrs;a++){const v=get(a,c);if(v>score){score=v;cls=a-4}}if(score<YOLO_THRESHOLD||cls!==2)continue;const cx=get(0,c),cy=get(1,c),bw=get(2,c),bh=get(3,c);const box={xmin:Math.max(0,Math.min(meta.vw,(cx-bw/2-meta.dx)/meta.scale)),ymin:Math.max(0,Math.min(meta.vh,(cy-bh/2-meta.dy)/meta.scale)),xmax:Math.max(0,Math.min(meta.vw,(cx+bw/2-meta.dx)/meta.scale)),ymax:Math.max(0,Math.min(meta.vh,(cy+bh/2-meta.dy)/meta.scale))};if(box.xmax>box.xmin&&box.ymax>box.ymin)dets.push({score,label:COCO[cls]||("class "+cls),box})}return nms(dets)}
+async function detectFrame(id){const c=S.cameras.get(id);if(!S.ai.running||!S.ai.session||!c)return;if(!c.video||c.video.readyState<2){scheduleDetect(id);return}try{const meta=letterbox(c.video),input=tensorFromCanvas(meta.canvas),feeds={};feeds[S.ai.session.inputNames[0]]=input;const result=await S.ai.session.run(feeds),output=result[S.ai.session.outputNames[0]];drawDetections(c,decodeYOLO(output,meta))}catch(e){console.warn("YOLO11 inference",e)}scheduleDetect(id)}
+function scheduleDetect(id){if(S.ai.running){clearTimeout(S.ai.timers.get(id));S.ai.timers.set(id,setTimeout(()=>detectFrame(id),700))}}
+function startAIForCamera(id){if(!S.ai.session||!S.cameras.has(id))return;S.ai.running=true;S.ai.cameras.set(id,true);$("aiStatus").textContent="YOLO11 ONLINE · detecting all connected cameras · ≥20% confidence";detectFrame(id)}
+function stopAIForCamera(id){S.ai.cameras.delete(id);clearTimeout(S.ai.timers.get(id));S.ai.timers.delete(id);const c=S.cameras.get(id);if(c?.overlay){const ctx=c.overlay.getContext("2d");ctx.clearRect(0,0,c.overlay.width,c.overlay.height)}if(!S.ai.cameras.size)S.ai.running=false}
+function startAI(){for(const id of S.cameras.keys())startAIForCamera(id)}
+function stopAI(){S.ai.running=false;for(const id of [...S.ai.cameras.keys()])stopAIForCamera(id);$("aiStatus").textContent=S.ai.session?"YOLO11 ONLINE · automatic detection paused.":"AI engine not loaded."}
+async function connect(roomName,role){const L=LivekitClient;const source=tokenSource();if(S.room){try{await S.room.disconnect()}catch(e){}}S.room=new L.Room({adaptiveStream:true,dynacast:true});S.roomName=roomName;S.room.on(L.RoomEvent.TrackSubscribed,(track,publication,participant)=>{if(role!=="operator"||track.kind!=="video")return;const video=track.attach();video.autoplay=true;video.playsInline=true;const id=participant.identity;if(S.removedCameras.has(id)){track.detach();return}const name=participant?.name||participant?.identity||"Camera";cameraCard(id,name,video);if(S.ai.session)startAIForCamera(participant.identity);video.addEventListener("loadedmetadata",()=>startRecording(participant.identity),{once:true})});S.room.on(L.RoomEvent.TrackUnsubscribed,(track,publication,participant)=>{const id=participant?.identity;track.detach();if(id)removeCamera(id)});S.room.on(L.RoomEvent.DataReceived,(payload,participant)=>{
+let msg;try{msg=JSON.parse(new TextDecoder().decode(payload))}catch(e){return}
+if(msg.type==="camera:remove"&&role==="camera"&&msg.target===S.room?.localParticipant?.identity){
+for(const p of [...S.room.localParticipant.trackPublications.values()]){
+try{awaitMaybeUnpublish(p)}catch(e){}
 }
-function stopAI(){
-S.ai.running=false;
-for(const id of [...S.ai.cameras.keys()]){clearTimeout(S.ai.timers.get(id));S.ai.timers.delete(id);S.ai.busy.delete(id)}
-S.ai.cameras.clear();
-$("toggleAi").textContent="START VISION AGENT";
-$("aiStatus").textContent="VISION AGENT PAUSED.";setVisionBadge("VISION AGENT: PAUSED","");
+$("cameraMsg").textContent="Camera removed by operator.";
+setStatus("REMOVED");
+return;
 }
-async function connect(roomName,role){const L=LivekitClient;const source=tokenSource();if(S.room){try{await S.room.disconnect()}catch(e){}}S.room=new L.Room({adaptiveStream:true,dynacast:true});S.roomName=roomName;S.room.on(L.RoomEvent.TrackSubscribed,(track,publication,participant)=>{if(role!=="operator"||track.kind!=="video")return;const video=track.attach();video.autoplay=true;video.playsInline=true;const id=participant.identity;if(S.removedCameras.has(id)){track.detach();return}const name=participant?.name||participant?.identity||"Camera";cameraCard(id,name,video);if(S.ai.running)startAIForCamera(participant.identity);video.addEventListener("loadedmetadata",()=>startRecording(participant.identity),{once:true})});S.room.on(L.RoomEvent.TrackUnsubscribed,(track,publication,participant)=>{const id=participant?.identity;track.detach();if(id)removeCamera(id)});S.room.on(L.RoomEvent.DataReceived,(payload,participant)=>{let msg;try{msg=JSON.parse(new TextDecoder().decode(payload))}catch(e){return}if(msg.type==="camera:remove"&&role==="camera"&&msg.target===S.room?.localParticipant?.identity){for(const p of [...S.room.localParticipant.trackPublications.values()]){try{awaitMaybeUnpublish(p)}catch(e){}}$("cameraMsg").textContent="Camera removed by operator.";setStatus("REMOVED");return}if(role==="operator")handleCameraData(msg,participant)});S.room.on(L.RoomEvent.ParticipantDisconnected,participant=>{if(role==="operator")removeCamera(participant.identity)});S.room.on(L.RoomEvent.Disconnected,()=>{setStatus("OFFLINE");$("roomState").textContent="DISCONNECTED"});const r=await source.fetch({roomName,participantIdentity:identity(role),participantName:role==="operator"?"Operator":"Camera"});if(!r?.serverUrl||!r?.participantToken)throw Error("LiveKit returned incomplete connection details.");await S.room.connect(r.serverUrl,r.participantToken);$("roomState").textContent=roomName+" · CONNECTED";setStatus(role==="operator"?"OPERATOR ONLINE":"CAMERA ONLINE");if(role==="camera")startGps()}
+if(role==="operator")handleCameraData(msg,participant)
+});S.room.on(L.RoomEvent.ParticipantDisconnected,participant=>{if(role==="operator")removeCamera(participant.identity)});S.room.on(L.RoomEvent.Disconnected,()=>{setStatus("OFFLINE");$("roomState").textContent="DISCONNECTED"});const r=await source.fetch({roomName,participantIdentity:identity(role),participantName:role==="operator"?"Operator":"Camera"});if(!r?.serverUrl||!r?.participantToken)throw Error("LiveKit returned incomplete connection details.");await S.room.connect(r.serverUrl,r.participantToken);$("roomState").textContent=roomName+" · CONNECTED";setStatus(role==="operator"?"OPERATOR ONLINE":"CAMERA ONLINE");if(role==="camera")startGps()}
 function handleCameraData(msg,participant){const id=participant?.identity||msg.id;if(!id)return;if(msg.type==="camera:hello"){if(!S.cameras.has(id))S.cameras.set(id,{id,name:msg.name||"Camera",loc:null});refreshCameraSelect();updateCounts()}if(msg.type==="gps"&&Number.isFinite(msg.lat)&&Number.isFinite(msg.lon)){const c=S.cameras.get(id)||{id,name:"Camera"};c.lat=msg.lat;c.lon=msg.lon;c.locText=msg.lat.toFixed(5)+", "+msg.lon.toFixed(5);S.cameras.set(id,c);upsertMarker(id,msg.lat,msg.lon,c.name||"Camera");const card=c.card;if(card)c.loc.textContent="GPS: "+c.locText;$("mapHint").textContent="GPS updated: "+(c.name||"Camera");if(S.cameras.size===1&&S.map)S.map.setView([msg.lat,msg.lon],15)}}
 function removeCamera(id,operatorAction=false){
 const c=S.cameras.get(id);if(!c)return;
@@ -280,12 +163,11 @@ if(pub?.track&&S.room?.localParticipant?.unpublishTrack)return S.room.localParti
 }
 function startGps(){if(!navigator.geolocation){$("cameraMsg").textContent="This browser does not provide GPS.";return}const publish=pos=>{const lat=pos.coords.latitude,lon=pos.coords.longitude;sendData({type:"gps",lat,lon,accuracy:pos.coords.accuracy||null,id:S.room?.localParticipant?.identity});$("cameraMsg").textContent="Camera LIVE · GPS "+lat.toFixed(5)+", "+lon.toFixed(5)};S.watchId=navigator.geolocation.watchPosition(publish,e=>{$("cameraMsg").textContent="Camera LIVE · GPS unavailable ("+e.message+")"},{enableHighAccuracy:true,maximumAge:5000,timeout:15000})}
 document.querySelectorAll(".nav").forEach(b=>b.onclick=()=>showView(b.dataset.view));
-try{setAccidentApi(localStorage.getItem("cordds_accident_api")||"http://127.0.0.1:8000")}catch(e){setAccidentApi("http://127.0.0.1:8000")}
-$("operatorBtn").onclick=async()=>{try{unlockAlertAudio();const n=$("room").value.trim()||("cb-"+Math.random().toString(36).slice(2,7));$("room").value=n;await connect(n,"operator");showApp("operator");initMap();showView("cameras");startAI()}catch(e){$("gateMsg").textContent="Operator connection error: "+(e.message||e);setStatus("ERROR");console.error(e)}};
-$("createRoom").onclick=async()=>{try{unlockAlertAudio();localStorage.setItem("cordds_room",$("room").value.trim());const n=$("room").value.trim()||("cb-"+Math.random().toString(36).slice(2,7));$("room").value=n;await connect(n,"operator");showApp("operator");if(window.CORDDS_VIEW_ROLE==="legal")setStatus("LEGAL ONLINE");initMap();showView("cameras");startAI()}catch(e){$("roomState").textContent="ERROR: "+(e.message||e);setStatus("ERROR");console.error(e)}};
+$("operatorBtn").onclick=async()=>{try{const n=$("room").value.trim()||("cb-"+Math.random().toString(36).slice(2,7));$("room").value=n;await connect(n,"operator");showApp("operator");initMap();showView("cameras");loadAI()}catch(e){$("gateMsg").textContent="Operator connection error: "+(e.message||e);setStatus("ERROR");console.error(e)}};
+$("createRoom").onclick=async()=>{try{const n=$("room").value.trim()||("cb-"+Math.random().toString(36).slice(2,7));$("room").value=n;await connect(n,"operator");showApp("operator");initMap();loadAI()}catch(e){$("roomState").textContent="ERROR: "+(e.message||e);setStatus("ERROR");console.error(e)}};
 $("cameraBtn").onclick=()=>showApp("camera");
 $("startCamera").onclick=async()=>{const n=$("cameraRoom").value.trim();if(!n){$("cameraMsg").textContent="Enter the operator room ID.";return}let stream;try{$("cameraMsg").textContent="Requesting camera permission…";stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:720}},audio:false});$("localVideo").srcObject=stream;$("cameraMsg").textContent="Camera granted. Connecting…";await connect(n,"camera");sendData({type:"camera:hello",name:"Camera",id:S.room.localParticipant.identity});const video=stream.getVideoTracks()[0];if(!video)throw Error("No camera video track was available.");const track=new LivekitClient.LocalVideoTrack(video);await S.room.localParticipant.publishTrack(track,{name:"security-camera"});$("cameraMsg").textContent="Camera is LIVE. Keep this page open."}catch(e){if(stream)stream.getTracks().forEach(t=>t.stop());$("cameraMsg").textContent="Camera error: "+(e.message||e.name);setStatus("ERROR");console.error(e)}};
-$("loadAi").onclick=checkVisionAgent;$("toggleAi").onclick=()=>S.ai.running?stopAI():startAI();$("aiCamera").onchange=()=>{};
+$("loadAi").onclick=loadAI;$("toggleAi").onclick=()=>S.ai.running?stopAI():startAI();$("aiCamera").onchange=()=>{};
 $("clearAlerts").onclick=()=>{S.alerts=[];updateCounts();renderAlerts()};$("deleteAllRecordings").onclick=async()=>{if(!confirm("Delete all saved recordings from this browser?"))return;const db=await openDb();await new Promise((res,rej)=>{const tx=db.transaction("segments","readwrite");tx.objectStore("segments").clear();tx.oncomplete=res;tx.onerror=()=>rej(tx.error)});refreshStorage()};
 $("leave").onclick=async()=>{try{S.collisions.clear();S.removedCameras.clear();stopAI();if(S.watchId!=null)navigator.geolocation.clearWatch(S.watchId);for(const c of S.cameras.values()){if(c.recordTimer)clearTimeout(c.recordTimer);if(c.recorder?.state==="recording")c.recorder.stop()}if(S.room)await S.room.disconnect()}catch(e){}location.reload()};
 })();

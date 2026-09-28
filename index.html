@@ -5,19 +5,19 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>CORDDSBASE</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-<link rel="stylesheet" href="styles.css?v=20260925-1900">
+<link rel="stylesheet" href="styles.css?v=20260925-1100">
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.22.3/dist/livekit-client.umd.min.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 </head>
 <body>
-<header><b>CORDDSBASE</b><div class="headerStatus"><span id="visionAgentBadge">RT-DETR DETECTOR: OFFLINE</span><span id="status">OFFLINE</span></div></header>
+<header><b>CORDDSBASE</b><span id="status">OFFLINE</span></header>
 
 <main id="gate">
 <section class="card">
 <h1>CORDDSBASE</h1>
 <p>Security camera command interface</p>
-<div class="actions"><button id="operatorBtn">OPERATOR</button><button id="legalBtn">LEGAL</button><button id="cameraBtn">CAMERA</button></div><div id="loginPanel" hidden><label id="loginLabel">Password</label><input id="loginPassword" type="password" autocomplete="off" placeholder="Password"><button id="loginSubmit">LOGIN</button></div>
-<p id="gateMsg">Select a role. Camera requires no password.</p>
+<div class="actions"><button id="operatorBtn">OPERATOR</button><button id="cameraBtn">CAMERA</button></div>
+<p id="gateMsg">Ready.</p>
 </section>
 </main>
 
@@ -28,7 +28,7 @@
 <button class="nav" data-view="map">Live Map</button>
 <button class="nav" data-view="alerts">Alerts <span id="alertCount">0</span></button>
 <button class="nav" data-view="storage">Video Storage <span id="recordingCount">0</span></button>
-<button class="nav" data-view="ai">Vision Agent</button>
+<button class="nav" data-view="ai">YOLO11 Detection</button>
 <button class="nav" data-view="settings">Settings</button>
 <button id="leave" class="danger">LOG OUT</button>
 </aside>
@@ -38,7 +38,7 @@
 
 <section id="view-cameras" class="view">
 <div id="operatorPanel" class="panel">
-<div class="row"><input id="room" value="Bum" placeholder="Room ID (e.g. cb-12345)"><button id="createRoom">CREATE / JOIN ROOM</button></div>
+<div class="row"><input id="room" placeholder="Room ID (e.g. cb-12345)"><button id="createRoom">CREATE / JOIN ROOM</button></div>
 <div class="small">Share this room ID with camera devices. Each connected phone becomes a separate camera.</div>
 <div id="remoteArea" class="cameraGrid"></div>
 </div>
@@ -56,7 +56,7 @@
 
 <section id="view-alerts" class="view" hidden>
 <div class="panel">
-<div class="sectionHead"><div><h2>Operator Collision Control</h2><p>Collision alerts come directly from the background vision agent watching the live camera frames.</p></div></div><div id="collisionOps" class="collisionOps empty">No active collision incidents.</div><div class="sectionHead alertHead"><div><h2>Detection Alerts</h2><p>Vision-agent alerts from connected security cameras.</p></div><button id="clearAlerts">CLEAR ALERTS</button></div>
+<div class="sectionHead"><div><h2>Operator Collision Control</h2><p>Collision incidents require real box contact and closing motion across consecutive frames.</p></div></div><div id="collisionOps" class="collisionOps empty">No active collision incidents.</div><div class="sectionHead alertHead"><div><h2>Detection Alerts</h2><p>YOLO11 detections at or above the 20% confidence threshold.</p></div><button id="clearAlerts">CLEAR ALERTS</button></div>
 <div id="alertsList" class="list empty">No detection alerts yet.</div>
 </div>
 </section>
@@ -70,40 +70,27 @@
 
 <section id="view-ai" class="view" hidden>
 <div class="panel">
-<div class="sectionHead"><div><h2>Vision Agent</h2><p>A real-time vehicle detector and tracker watches every connected camera without drawing anything over the live video.</p></div><button id="loadAi">CHECK AGENT</button></div>
-<div id="aiStatus" class="aiStatus">VISION AGENT OFFLINE.</div>
+<div class="sectionHead"><div><h2>YOLO11 Detection</h2><p>Browser-side YOLO11n pipeline. Detection threshold: <b>20%</b>.</p></div><button id="loadAi">YOLO11 AUTO</button></div>
+<div id="aiStatus" class="aiStatus">AI engine not loaded.</div>
 <div class="aiGrid">
 <div><label>Detection camera</label><select id="aiCamera"><option value="">No camera selected</option></select></div>
-<div><label>Run agent</label><button id="toggleAi" disabled>START VISION AGENT</button></div>
+<div><label>Run detection</label><button id="toggleAi" disabled>AUTO DETECTION</button></div>
 </div>
-<p class="small">The live camera view is never annotated. RT-DETR detects cars, a tracker keeps persistent vehicle IDs, and collision geometry confirms physical contact across multiple frames.</p>
+<p class="small">The first load downloads the model and may take a while. Detection runs locally in the operator browser; no camera frames are uploaded by this page for inference.</p>
 </div>
 </section>
 
 <section id="view-settings" class="view" hidden>
 <div class="panel">
 <h2>Settings</h2>
-<div class="setting"><span>Vision frame sampling</span><b>~10 checks/sec/camera</b></div>
+<div class="setting"><span>YOLO confidence threshold</span><b>20%</b></div>
 <div class="setting"><span>Recording segment length</span><b>2 minutes</b></div>
 <div class="setting"><span>Map</span><b>Leaflet + OpenStreetMap</b></div>
-<div class="setting"><span>Accident AI</span><div><b>VISION AGENT</b><div class="small">RT-DETRv2-S INT8 through the local detector server. No camera overlay.</div></div></div><div class="setting"><span>Collision decision</span><b>Tracked vehicle physical contact</b></div><div class="setting"><span>Build</span><b>CORDDSBase 2.0</b></div>
+<div class="setting"><span>Build</span><b>CORDDSBase 2.0</b></div>
 </div>
 </section>
 </section>
 </main>
-<script>
-(function(){
-var role="";
-var panel=document.getElementById("loginPanel"),pass=document.getElementById("loginPassword"),label=document.getElementById("loginLabel"),msg=document.getElementById("gateMsg");
-function choose(r){role=r;if(r==="camera"){panel.hidden=true;document.getElementById("cameraBtn").dataset.authCamera="1";return}panel.hidden=false;label.textContent=r==="operator"?"Operator password":"Legal password";pass.value="";pass.focus();msg.textContent=r.toUpperCase()+" login required."}
-document.getElementById("operatorBtn").onclick=function(){choose("operator")};
-document.getElementById("legalBtn").onclick=function(){choose("legal")};
-document.getElementById("cameraBtn").onclick=function(){window.CORDDS_VIEW_ROLE="camera";document.getElementById("gate").hidden=true;document.getElementById("app").hidden=false;document.getElementById("operatorPanel").hidden=true;document.getElementById("cameraPanel").hidden=false;document.getElementById("title").textContent="Camera";document.getElementById("status").textContent="CAMERA"};
-document.getElementById("loginSubmit").onclick=function(){var expected=role==="operator"?"op":"legal";if(String(pass.value||"").trim()!==expected){msg.textContent="Incorrect password. Use the operator password: op";return}window.CORDDS_VIEW_ROLE=role;panel.hidden=true;document.getElementById("gate").hidden=true;document.getElementById("app").hidden=false;document.getElementById("operatorPanel").hidden=role!=="operator";document.getElementById("cameraPanel").hidden=true;document.getElementById("title").textContent=role==="operator"?"Cameras":"Legal";document.getElementById("status").textContent=role.toUpperCase();msg.textContent="";if(role==="operator"){var room=document.getElementById("room");if(room)room.focus()}};
-pass.addEventListener("keydown",function(e){if(e.key==="Enter")document.getElementById("loginSubmit").click()});
-})();
-</script>
-<script src="app.js?v=20260927-rtdetr-fix3"></script>
-<script>window.addEventListener("load",function(){if(!window.CORDDS_VIEW_ROLE){document.getElementById("gate").hidden=false;document.getElementById("app").hidden=true}});</script>
+<script src="app.js?v=20260925-1100"></script>
 </body>
 </html>

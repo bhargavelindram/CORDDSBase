@@ -191,3 +191,38 @@ aside #leave{margin-top:8px}
 .musicMiniButtons{display:grid;grid-template-columns:38px 1fr 38px;gap:6px}
 .musicMiniButtons button{padding:8px 5px;font-size:10px;border-radius:8px}
 .musicMiniButtons #musicPlayPause{background:#d00;border-color:#d00}
+
+/* CORDDSBase landing page v1901 */
+#gate{min-height:calc(100vh - 64px);display:grid;place-items:center;padding:42px 20px;position:relative;overflow:hidden}
+.gateShell{width:min(760px,100%);position:relative}
+.gateGlow{position:absolute;inset:-180px -120px;background:radial-gradient(circle,rgba(255,23,56,.16),transparent 58%);pointer-events:none}
+.gateCard{position:relative;background:linear-gradient(145deg,rgba(15,19,25,.98),rgba(5,7,10,.98));border:1px solid #303844;border-radius:24px;padding:30px;box-shadow:0 35px 100px rgba(0,0,0,.65),0 0 80px rgba(255,23,56,.07);overflow:hidden}
+.gateCard:after{content:"";position:absolute;left:0;right:0;top:0;height:2px;background:linear-gradient(90deg,transparent,var(--red),transparent);opacity:.8}
+.gateTopline{display:flex;align-items:center;gap:8px;color:#7f8995;font-size:9px;font-weight:700;letter-spacing:1.8px;margin-bottom:22px}
+.gateVersion{margin-left:auto;color:#4c5662}
+.statusDot{width:7px;height:7px;border-radius:50%;background:#35d07f;box-shadow:0 0 10px rgba(53,208,127,.7)}
+.gateBrand{height:150px;border:1px solid #252c35;border-radius:16px;background:radial-gradient(circle at 50% 45%,rgba(255,23,56,.14),transparent 52%),#080a0e;display:grid;place-items:center;overflow:hidden}
+.gateBrand .gateLogo{width:min(520px,92%);height:145px;max-height:none;object-fit:contain;margin:0;mix-blend-mode:screen;filter:drop-shadow(0 0 25px rgba(255,23,56,.16))}
+.gateHeading{text-align:center;padding:26px 0 20px}
+.gateEyebrow{font-size:9px;letter-spacing:3px;color:#707b87;font-weight:700}
+.gateHeading h1{font-size:48px;letter-spacing:-2.5px;margin:7px 0 4px}
+.gateHeading p{margin:0;color:#9aa3ad;font-size:11px;letter-spacing:2px}
+.gateDivider{height:1px;background:#252c35;margin-bottom:22px}
+.roleLabel{text-align:center;color:#727d89;font-size:9px;letter-spacing:2px;font-weight:700;margin-bottom:11px}
+#gate .gateActions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0}
+#gate .gateActions .roleBtn{min-height:72px;border-radius:12px;text-align:left;padding:13px 16px;background:linear-gradient(135deg,#15191f,#0d1014);border:1px solid #333b46;display:flex;flex-direction:column;justify-content:center;gap:4px;transition:.18s ease}
+#gate .gateActions .roleBtn:hover:not(:disabled){transform:translateY(-1px);border-color:#687381;background:linear-gradient(135deg,#1a1f26,#101419);box-shadow:0 8px 25px rgba(0,0,0,.3)}
+#gate .gateActions .roleBtn span{font-size:12px;letter-spacing:1.2px;font-weight:800;color:#f2f4f6}
+#gate .gateActions .roleBtn small{font-size:9px;letter-spacing:1px;color:#737d89}
+#gate .gateActions .roleBtn:first-child{border-color:rgba(255,23,56,.42);background:linear-gradient(135deg,rgba(255,23,56,.13),#0e1116)}
+#gate .gateActions .roleBtn:first-child:hover{border-color:var(--red)}
+#gate .gateActions .secondaryBtn{opacity:.35;cursor:not-allowed}
+#gate .creatorCredit{text-align:center;margin:19px 0 0;color:#66717d;font-size:9px;letter-spacing:1.7px}
+#gate .creatorCredit b{color:#dce2e8;letter-spacing:1.3px}
+.gateLogin{margin-top:18px;padding:16px;border:1px solid #2c343e;border-radius:14px;background:#080b0f}
+.loginTitle{font-size:10px;font-weight:800;letter-spacing:1.5px;color:#dfe4e9;margin-bottom:7px}
+.gateLogin input{margin-top:7px}
+.gateLogin .loginButton{width:100%;margin-top:10px;background:var(--red);border-color:var(--red);min-height:44px}
+.gateReady{text-align:center;color:#6e7884;font-size:9px;letter-spacing:1.5px;margin-top:18px}
+.readyLine{display:inline-block;width:6px;height:6px;border-radius:50%;background:#35d07f;margin-right:7px;box-shadow:0 0 8px rgba(53,208,127,.6)}
+@media(max-width:650px){#gate{padding:20px 12px}.gateCard{padding:20px}.gateBrand{height:120px}.gateBrand .gateLogo{height:115px}.gateHeading h1{font-size:38px}#gate .gateActions{grid-template-columns:1fr}.gateTopline{font-size:8px}}

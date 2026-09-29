@@ -49,7 +49,7 @@ existing.add(title.toLowerCase());
 S.music=base;
 }
 function searchYouTubeMusic(){renderMusic()}
-async async async function loadMusicLibrary(){
+async function loadMusicLibrary(){
 if(S.musicLoaded)return;
 const list=$("musicList"),count=$("musicLibraryCount");
 try{

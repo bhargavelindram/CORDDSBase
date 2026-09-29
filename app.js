@@ -4,15 +4,36 @@ const DEFAULT_TOKEN="corddsbase-vzgr9t";
 const GLOBAL_REGISTRY_ROOM="CORDDS-GLOBAL-REGISTRY";
 const LEGAL_USER="legal";
 const LEGAL_PASSWORD="legal";
+const OPERATOR_USER="op";
+const OPERATOR_PASSWORD="op";
 const YOLO_THRESHOLD=.20;
 const YOLO_MODEL="https://huggingface.co/webnn/yolo11n/resolve/main/onnx/yolo11n.onnx?download=true";
 const SEGMENT_MS=120000;
-const S={room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),collisions:new Map(),removedCameras:new Set(),ai:{session:null,loading:false,running:false,cameras:new Map(),timers:new Map(),ort:null},map:null,cameraMap:null,globalMap:null,globalMarkers:new Map(),registryRoom:null,globalCameras:new Map(),watchId:null,db:null,audioCtx:null,audioBeatTimer:null,alarmNodes:new Set(),soundOn:true,hospitalLayer:null,attentionBusy:false,music:[],musicLoaded:false};
+const S={room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),collisions:new Map(),removedCameras:new Set(),ai:{session:null,loading:false,running:false,cameras:new Map(),timers:new Map(),ort:null},map:null,cameraMap:null,globalMap:null,globalMarkers:new Map(),registryRoom:null,globalCameras:new Map(),watchId:null,db:null,audioCtx:null,audioBeatTimer:null,alarmNodes:new Set(),soundOn:true,hospitalLayer:null,attentionBusy:false,music:[],musicLoaded:false,hospitalStatusTimer:null,hospitalDirectory:new Map()};
 const COCO=["person","bicycle","car","motorcycle","airplane","bus","train","truck","boat","traffic light","fire hydrant","stop sign","parking meter","bench","bird","cat","dog","horse","sheep","cow","elephant","bear","zebra","giraffe","backpack","umbrella","handbag","tie","suitcase","frisbee","skis","snowboard","sports ball","kite","baseball bat","baseball glove","skateboard","surfboard","tennis racket","bottle","wine glass","cup","fork","knife","spoon","bowl","banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake","chair","couch","potted plant","bed","dining table","toilet","tv","laptop","mouse","remote","keyboard","cell phone","microwave","oven","toaster","sink","refrigerator","book","clock","vase","scissors","teddy bear","hair drier","toothbrush"];
 function setStatus(t){$("status").textContent=t}
 function identity(p){return p+"-"+Math.random().toString(36).slice(2,10)}
 function tokenSource(){if(!window.LivekitClient)throw Error("LiveKit SDK did not load. Refresh the page.");if(!LivekitClient.TokenSource?.developmentTokenServer)throw Error("LiveKit TokenSource API is unavailable. Refresh the page.");return LivekitClient.TokenSource.developmentTokenServer(DEFAULT_TOKEN)}
 function sendData(obj){if(!S.room?.localParticipant)return;try{const bytes=new TextEncoder().encode(JSON.stringify(obj));S.room.localParticipant.publishData(bytes,{reliable:true})}catch(e){console.warn("data publish",e)}}
+const TELLAPUR_HOSPITALS=[
+{name:"Airaavata Multispeciality Hospital",area:"Tellapur",address:"Near Nallagandla–Tellapur Road, Tellapur, Hyderabad"},
+{name:"SSV Hospital",area:"Tellapur",address:"HUDA Colony, Road No. 13, Tellapur, Hyderabad"},
+{name:"Medicus Hospital",area:"Tellapur / Nallagandla",address:"Kanchi Gachibowli Road, Tellapur, Hyderabad"},
+{name:"Aparna Hospitals",area:"Nallagandla",address:"Navodaya Colony, Kanchi Gachibowli Road, Nallagandla"},
+{name:"Aksha Hospitals",area:"Gopanapally / Nallagandla",address:"Gopanapally, Serilingampalle, Hyderabad"},
+{name:"Citizens Specialty Hospital",area:"Nallagandla",address:"Nallagandla, Hyderabad"},
+{name:"Continental Hospitals",area:"Gachibowli",address:"Financial District / Gachibowli, Hyderabad"},
+{name:"AIG Hospitals",area:"Gachibowli",address:"Mindspace Road, Gachibowli, Hyderabad"}
+];
+const HOSPITAL_STATES=["ACCEPTING","ACCEPTING","LIMITED CAPACITY","ACCEPTING","BUSY","ACCEPTING"];
+function hospitalState(name){let h=S.hospitalDirectory.get(name);if(!h){h={index:Math.floor(Math.random()*HOSPITAL_STATES.length),updated:Date.now()};S.hospitalDirectory.set(name,h)}return HOSPITAL_STATES[h.index%HOSPITAL_STATES.length]}
+function advanceHospitalStatuses(){for(const h of TELLAPUR_HOSPITALS){const cur=S.hospitalDirectory.get(h.name)||{index:0};cur.index=(cur.index+1)%HOSPITAL_STATES.length;cur.updated=Date.now();S.hospitalDirectory.set(h.name,cur)}refreshIncidentHospitalList();renderCollisionControl()}
+function startHospitalStatusSimulation(){if(S.hospitalStatusTimer)return;for(const h of TELLAPUR_HOSPITALS)hospitalState(h.name);S.hospitalStatusTimer=setInterval(advanceHospitalStatuses,12000)}
+function refreshIncidentHospitalList(){
+const list=$("hospitalList");if(!list)return;
+list.innerHTML=TELLAPUR_HOSPITALS.map(h=>'<div class="hospitalRow"><div class="hospitalInfo"><b>'+escapeHtml(h.name)+'</b><div class="small">'+escapeHtml(h.area)+' · '+escapeHtml(h.address)+'</div></div><span class="hospitalStatus '+hospitalState(h.name).toLowerCase().replace(/ /g,"-")+'">'+hospitalState(h.name)+'</span></div>').join("");
+}
+
 function showApp(role){$("gate").hidden=true;$("app").hidden=false;S.role=role;$("operatorPanel").hidden=role!=="operator";$("cameraPanel").hidden=role!=="camera";$("operatorNav").hidden=role!=="operator";$("legalNav").hidden=role!=="legal";$("content").classList.toggle("cameraOnlyMode",role==="camera");$("title").textContent=role==="operator"?"Cameras":role==="legal"?"Video Storage":"";setStatus(role.toUpperCase());if(role==="camera"){showView("cameras");initCameraMap()}if(role==="legal"){showView("legal-storage");initGlobalMap();connectGlobalRegistry("legal").catch(e=>console.warn("legal registry",e));refreshLegalStorage()}}
 async function loadMusicLibrary(){
 if(S.musicLoaded)return;
@@ -103,20 +124,14 @@ const incident={id,camera:c.name||"Camera",cameraId:c.id,score,time:now,lastSeen
 S.collisions.set(id,incident);addAlert(c.name||"Camera","VEHICLE COLLISION",score);renderCollisionControl();startIncidentPing(incident);showEmergencyBanner(incident);
 makeReplay(c,now).then(r=>{if(r){incident.replay=r;renderAlerts()}})}
 
-async function loadIncidentHospitals(id){
-const x=S.collisions.get(id),c=S.cameras.get(x?.cameraId);if(!x||!c)return;
+function loadIncidentHospitals(id){
+const x=S.collisions.get(id);if(!x)return;
 const sel=$("hospitalSelect"),list=$("hospitalList"),hint=$("hospitalResponseHint");if(!sel||!list)return;
-sel.innerHTML='<option value="">SELECT NEARBY HOSPITAL</option>';list.innerHTML="";hint.textContent=Number.isFinite(c.lat)&&Number.isFinite(c.lon)?"Loading nearby hospitals…":"Camera GPS is unavailable; hospital list cannot be location-ranked.";
-if(!Number.isFinite(c.lat)||!Number.isFinite(c.lon))return;
-try{
-const q='[out:json][timeout:25];(node["amenity"="hospital"](around:30000,'+c.lat+','+c.lon+');way["amenity"="hospital"](around:30000,'+c.lat+','+c.lon+');relation["amenity"="hospital"](around:30000,'+c.lat+','+c.lon+'););out center tags;';
-const res=await fetch("https://overpass-api.de/api/interpreter?data="+encodeURIComponent(q));if(!res.ok)throw Error("Hospital search "+res.status);
-const d=await res.json();const hospitals=(d.elements||[]).map(h=>({name:h.tags?.name||"Hospital",lat:h.lat??h.center?.lat,lon:h.lon??h.center?.lon,address:h.tags?.["addr:full"]||[h.tags?.["addr:street"],h.tags?.["addr:city"]].filter(Boolean).join(", ")})).filter(h=>Number.isFinite(h.lat)&&Number.isFinite(h.lon)).sort((a,b)=>a.name.localeCompare(b.name)).slice(0,150);
-for(const h of hospitals){const o=document.createElement("option");o.value=JSON.stringify(h);o.textContent=h.name+(h.address?" · "+h.address:"");sel.appendChild(o)}
-hint.textContent=hospitals.length+" nearby hospital locations found. Acceptance status is operator-recorded unless an external hospital system is integrated.";
-}catch(e){hint.textContent="Nearby hospital data is unavailable right now.";console.warn(e)}
-}
-function showIncidentResponse(id){const p=$("incidentAckPanel");if(!p)return;p.hidden=false;p.dataset.incident=id;loadIncidentHospitals(id)}
+startHospitalStatusSimulation();sel.innerHTML='<option value="">SELECT A HOSPITAL</option>';
+for(const h of TELLAPUR_HOSPITALS){const o=document.createElement("option");o.value=JSON.stringify(h);o.textContent=h.name+" · "+h.area;sel.appendChild(o)}
+refreshIncidentHospitalList();
+hint.textContent="TELLAPUR / HYDERABAD · "+TELLAPUR_HOSPITALS.length+" nearby hospitals · SIMULATED LIVE STATUS";
+}function showIncidentResponse(id){const p=$("incidentAckPanel");if(!p)return;p.hidden=false;p.dataset.incident=id;loadIncidentHospitals(id)}
 function acknowledgeCollision(id){
 const x=S.collisions.get(id);if(!x)return;
 x.status="ACKNOWLEDGED";stopIncidentPing(x);$("emergencyBanner").hidden=true;renderCollisionControl();showIncidentResponse(id);
@@ -284,9 +299,10 @@ function initCameraMap(){if(S.cameraMap||!window.L)return;S.cameraMap=L.map("cam
 function updateCameraLocationMap(lat,lon){if(!S.cameraMap||!Number.isFinite(lat)||!Number.isFinite(lon))return;const p=[lat,lon];if(!S.cameraMap._corddsMarker)S.cameraMap._corddsMarker=L.circleMarker(p,{radius:10,color:"#ff3150",weight:3,fillColor:"#ff3150",fillOpacity:.9}).addTo(S.cameraMap);else S.cameraMap._corddsMarker.setLatLng(p);S.cameraMap.setView(p,16);$("cameraGpsStatus").textContent="GPS LOCKED · "+lat.toFixed(5)+", "+lon.toFixed(5)}
 function startGps(){if(!navigator.geolocation){$("cameraMsg").textContent="This browser does not provide GPS.";return}const publish=pos=>{const lat=pos.coords.latitude,lon=pos.coords.longitude;sendData({type:"gps",lat,lon,accuracy:pos.coords.accuracy||null,id:S.room?.localParticipant?.identity});if(S.registryRoom?.localParticipant){try{S.registryRoom.localParticipant.publishData(new TextEncoder().encode(JSON.stringify({type:"registry:camera",id:S.room?.localParticipant?.identity,name:"Camera",room:S.roomName,lat,lon,online:true,updated:Date.now()})),{reliable:true})}catch(e){}}$("cameraMsg").textContent="LIVE · ROOM "+S.roomName;$("cameraGpsStatus").textContent="GPS LOCKED";updateCameraLocationMap(lat,lon)};S.watchId=navigator.geolocation.watchPosition(publish,e=>{$("cameraMsg").textContent="Camera LIVE · GPS unavailable ("+e.message+")"},{enableHighAccuracy:true,maximumAge:5000,timeout:15000})}
 document.querySelectorAll(".nav").forEach(b=>b.onclick=()=>showView(b.dataset.view));
-$("legalBtn").onclick=()=>{$("legalLogin").hidden=!$("legalLogin").hidden;$("legalMsg").textContent="Authorized legal access only.";setTimeout(()=>$("legalUser")?.focus(),50)};
+$("legalBtn").onclick=()=>{$("legalLogin").hidden=!$("legalLogin").hidden;$("operatorLogin").hidden=true;$("legalMsg").textContent="Authorized legal access only.";setTimeout(()=>$("legalUser")?.focus(),50)};
 $("legalSignIn").onclick=async()=>{const u=$("legalUser").value.trim().toLowerCase(),p=$("legalPass").value;if(u!==LEGAL_USER||p!==LEGAL_PASSWORD){$("legalMsg").textContent="SIGN IN DENIED";return}showApp("legal");$("legalUser").value="";$("legalPass").value=""};
-$("operatorBtn").onclick=async()=>{try{unlockAlertAudio();startAttentionAudio();const n=$("room").value.trim()||("cb-"+Math.random().toString(36).slice(2,7));$("room").value=n;await connect(n,"operator");showApp("operator");initMap();showView("cameras");loadAI()}catch(e){$("gateMsg").textContent="Operator connection error: "+(e.message||e);setStatus("ERROR");console.error(e)}};
+$("operatorBtn").onclick=()=>{$("operatorLogin").hidden=!$("operatorLogin").hidden;$("legalLogin").hidden=true;$("operatorMsg").textContent="Operator credentials required.";setTimeout(()=>$("operatorUser")?.focus(),50)};
+$("operatorSignIn").onclick=async()=>{const u=$("operatorUser").value.trim().toLowerCase(),p=$("operatorPass").value;if(u!==OPERATOR_USER||p!==OPERATOR_PASSWORD){$("operatorMsg").textContent="SIGN IN DENIED";return}try{unlockAlertAudio();startAttentionAudio();const n=$("room").value.trim()||("cb-"+Math.random().toString(36).slice(2,7));$("room").value=n;await connect(n,"operator");showApp("operator");initMap();showView("cameras");loadAI();$("operatorUser").value="";$("operatorPass").value=""}catch(e){$("operatorMsg").textContent="Operator connection error: "+(e.message||e);setStatus("ERROR");console.error(e)}};
 $("createRoom").onclick=async()=>{try{unlockAlertAudio();const n=$("room").value.trim()||("cb-"+Math.random().toString(36).slice(2,7));$("room").value=n;await connect(n,"operator");showApp("operator");initMap();loadAI()}catch(e){$("roomState").textContent="ERROR: "+(e.message||e);setStatus("ERROR");console.error(e)}};
 $("cameraBtn").onclick=()=>showApp("camera");
 $("startCamera").onclick=async()=>{const n=$("cameraRoom").value.trim();if(!n){$("cameraMsg").textContent="Enter the operator room ID.";return}let stream;try{$("cameraMsg").textContent="Requesting camera permission…";stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:720}},audio:false});$("localVideo").srcObject=stream;$("cameraMsg").textContent="Camera granted. Connecting…";await connect(n,"camera");await connectGlobalRegistry("camera");if(S.watchId!==null){navigator.geolocation.clearWatch(S.watchId);S.watchId=null}startGps();publishGlobalRegistry();sendData({type:"camera:hello",name:"Camera",id:S.room.localParticipant.identity});const video=stream.getVideoTracks()[0];if(!video)throw Error("No camera video track was available.");const track=new LivekitClient.LocalVideoTrack(video);await S.room.localParticipant.publishTrack(track,{name:"security-camera"});$("cameraMsg").textContent="Camera is LIVE. Keep this page open."}catch(e){if(stream)stream.getTracks().forEach(t=>t.stop());$("cameraMsg").textContent="Camera error: "+(e.message||e.name);setStatus("ERROR");console.error(e)}};
@@ -297,8 +313,21 @@ async function searchMapPlace(){const q=($("mapSearch")?.value||"").trim();if(!q
 $("mapSearchBtn")?.addEventListener("click",searchMapPlace);
 $("mapSearch")?.addEventListener("keydown",e=>{if(e.key==="Enter")searchMapPlace()});
 $("closeReplay").onclick=closeReplay;$("replayModal").addEventListener("click",e=>{if(e.target.id==="replayModal")closeReplay()});
-$("hospitalAcceptance")?.addEventListener("change",e=>{const p=$("incidentAckPanel"),id=p?.dataset.incident,x=id&&S.collisions.get(id);if(x)x.hospitalStatus=e.target.value});
-$("hospitalSelect")?.addEventListener("change",e=>{const p=$("incidentAckPanel"),id=p?.dataset.incident,x=id&&S.collisions.get(id);if(!x||!e.target.value)return;try{x.hospital=JSON.parse(e.target.value);x.hospitalStatus="PENDING";$("hospitalAcceptance").value="PENDING"}catch(err){}});
+$("hospitalSelect")?.addEventListener("change",e=>{
+const p=$("incidentAckPanel"),id=p?.dataset.incident,x=id&&S.collisions.get(id);if(!x||!e.target.value)return;
+try{
+if(x.hospitalResponseTimer)clearTimeout(x.hospitalResponseTimer);
+x.hospital=JSON.parse(e.target.value);
+x.hospitalStatus="CONTACTING HOSPITAL…";
+x.hospitalResponseTimer=setTimeout(()=>{
+const state=hospitalState(x.hospital.name);
+x.hospitalStatus=(state==="ACCEPTING"||state==="LIMITED CAPACITY")?"PATIENT ACCEPTED":"PATIENT NOT ACCEPTED";
+renderCollisionControl();
+const hint=$("hospitalResponseHint");if(hint)hint.textContent="SIMULATED LIVE RESPONSE · "+x.hospital.name+" · updated "+new Date().toLocaleTimeString();
+},3500);
+renderCollisionControl();
+}catch(err){}
+});
 $("callFireServices")?.addEventListener("click",()=>{window.location.href="tel:101"});
 $("musicSearch")?.addEventListener("input",renderMusic);$("musicEnergy")?.addEventListener("change",renderMusic);loadMusicLibrary();
 $("soundToggle").onclick=()=>{S.soundOn=!S.soundOn;$("soundToggle").textContent=S.soundOn?"ATTENTION AUDIO: ON":"ATTENTION AUDIO: OFF";if(S.soundOn)startAttentionAudio();else stopAttentionAudio()};
@@ -306,5 +335,5 @@ $("emergencyReplay").onclick=()=>{const x=[...S.collisions.values()].find(x=>x.t
 
 ["legalDate","legalFrom","legalTo","legalPlace"].forEach(id=>$(id)?.addEventListener("input",refreshLegalStorage));$("legalClearFilters")?.addEventListener("click",()=>{["legalDate","legalFrom","legalTo","legalPlace"].forEach(id=>$(id).value="");refreshLegalStorage()});
 $("cameraLogout")?.addEventListener("click",()=>location.reload());
-$("leave").onclick=async()=>{try{S.collisions.clear();S.removedCameras.clear();stopAI();stopAttentionAudio();if(S.watchId!=null)navigator.geolocation.clearWatch(S.watchId);for(const c of S.cameras.values()){if(c.recordTimer)clearTimeout(c.recordTimer);if(c.recorder?.state==="recording")c.recorder.stop()}if(S.room)await S.room.disconnect()}catch(e){}location.reload()};
+$("leave").onclick=async()=>{try{if(S.hospitalStatusTimer){clearInterval(S.hospitalStatusTimer);S.hospitalStatusTimer=null}for(const x of S.collisions.values()){if(x.hospitalResponseTimer)clearTimeout(x.hospitalResponseTimer)}S.collisions.clear();S.removedCameras.clear();stopAI();stopAttentionAudio();if(S.watchId!=null)navigator.geolocation.clearWatch(S.watchId);for(const c of S.cameras.values()){if(c.recordTimer)clearTimeout(c.recordTimer);if(c.recorder?.state==="recording")c.recorder.stop()}if(S.room)await S.room.disconnect()}catch(e){}location.reload()};
 })();

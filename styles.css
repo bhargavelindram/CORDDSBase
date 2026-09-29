@@ -177,3 +177,7 @@ aside #leave{margin-top:8px}
 .hospitalStatus.limited-capacity{color:#e5b94d}
 .hospitalStatus.busy{color:#ff9b6b}
 .hospitalStatus.not-responding{color:#ff6578}
+
+/* Gate role grid + creator credit */
+#gate .creatorCredit{text-align:center;margin:-2px 0 18px;color:#737d89;font-size:11px;letter-spacing:1.6px;text-transform:uppercase}
+#gate .creatorCredit b{display:inline-block;color:#dce2e8;font-weight:700;letter-spacing:1.2px}

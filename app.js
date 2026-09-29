@@ -99,20 +99,43 @@ return (S.music||[]).filter(x=>((x.title||"")+" "+(x.artist||"")).toLowerCase().
 }
 async function searchYouTubeMusic(){
 const q=($("musicSearch")?.value||"").trim();
-const list=$("musicList"),count=$("musicLibraryCount");
+const list=$("musicList"),count=$("musicLibraryCount"),btn=$("musicSearchBtn");
 if(!q){
 if(list)list.innerHTML='<div class="list empty">SEARCH FOR A SONG OR ARTIST.</div>';
 if(count)count.textContent="SEARCH REQUIRED";
 return;
 }
-const local=localMusicMatches(q);
+if(btn){btn.disabled=true;btn.textContent="SEARCHING…";}
+if(list)list.innerHTML='<div class="list empty">SEARCHING YOUTUBE MUSIC CATALOGUE…</div>';
+try{
+let data=null,lastError=null;
+for(const base of MUSIC_API_BASES){
+try{
+const controller=new AbortController();
+const timer=setTimeout(()=>controller.abort(),15000);
+const r=await fetch(base+"/music/search?q="+encodeURIComponent(q)+"&limit=100",{cache:"no-store",signal:controller.signal});
+clearTimeout(timer);
+if(!r.ok)throw Error("HTTP "+r.status);
+data=await r.json();
+break;
+}catch(err){lastError=err}
+}
+if(!data)throw lastError||Error("Music search service unavailable");
+S.musicSearchResults=(data.results||[]).map(x=>({...x,source:"youtube-music"}));
 S.musicSearchQuery=q;
-S.musicSearchResults=local;
-S.musicQueue=local.slice();
+S.musicQueue=S.musicSearchResults.slice();
 renderMusic();
-if(count)count.textContent=local.length+" LOCAL MATCHES · YOUTUBE MUSIC AVAILABLE";
-window.open("https://music.youtube.com/search?q="+encodeURIComponent(q),"_blank","noopener,noreferrer");
-if(list&&!local.length)list.innerHTML='<div class="list empty">YOUTUBE MUSIC SEARCH OPENED — SELECT A SONG THERE.</div>';
+if(count)count.textContent=S.musicSearchResults.length+" YOUTUBE MUSIC RESULTS";
+if(!S.musicSearchResults.length&&list)list.innerHTML='<div class="list empty">NO SONGS FOUND IN YOUTUBE MUSIC.</div>';
+}catch(e){
+S.musicSearchResults=[];
+S.musicQueue=[];
+if(list)list.innerHTML='<div class="list empty">YOUTUBE MUSIC SEARCH IS CURRENTLY UNAVAILABLE.</div>';
+if(count)count.textContent="SEARCH UNAVAILABLE";
+console.warn("YouTube Music search",e);
+}finally{
+if(btn){btn.disabled=false;btn.textContent="SEARCH";}
+}
 }
 async function loadMusicLibrary(){
 if(S.musicLoaded)return;
@@ -129,7 +152,7 @@ const q=($("musicSearch")?.value||"").trim().toLowerCase();
 const source=S.musicSearchResults?.length?S.musicSearchResults:(q?localMusicMatches(q):[]);
 S.musicQueue=source.slice();
 if(!q){el.innerHTML='<div class="list empty">SEARCH FOR A SONG OR ARTIST.</div>';return}
-el.innerHTML=source.slice(0,30).map(x=>{
+el.innerHTML=source.slice(0,100).map(x=>{
 const thumb=musicThumbnail(x);
 return '<div class="musicItem" data-music-id="'+escapeHtml(String(x.id))+'"><div class="musicMain">'+(thumb?'<img class="musicThumb" src="'+thumb+'" alt="">':'<div class="musicThumb"></div>')+'<div class="musicText"><b>'+escapeHtml(x.title)+'</b><span>'+escapeHtml(x.artist||"Unknown artist")+'</span></div></div><div class="musicActions"><small>'+(x.source==="youtube-music"?"YT MUSIC":"CORDDSBASE")+'</small><button data-play-music="'+escapeHtml(String(x.id))+'">PLAY</button></div></div>'
 }).join("")||'<div class="list empty">NO SONGS FOUND.</div>';

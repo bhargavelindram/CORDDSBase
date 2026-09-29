@@ -293,3 +293,14 @@ aside #leave{margin-top:8px}
 .gateReady span:last-child{margin-left:auto}.readyLine{width:5px;height:5px;border-radius:50%;background:#35d07f;box-shadow:0 0 10px #35d07f}
 @media(max-width:850px){.gateRoleGrid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:520px){#gate{padding:12px}.gateHero{padding:20px 8px 18px}.gateHeroTitle{font-size:10px;letter-spacing:3px}.gateHeroSub{font-size:8px;line-height:1.6}.gateRoleGrid{grid-template-columns:1fr}.loginFields{grid-template-columns:1fr}.gateStatus{font-size:8px}.gateVersion{display:none}}
+
+/* Compact YouTube Music gate widget */
+.miniMusic{max-width:980px;margin:14px auto 4px;border:1px solid #292f38;border-radius:12px;background:#07090c;overflow:hidden}
+.miniMusicHead{height:34px;padding:0 12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #242a31;color:#dfe3e7;font-size:9px;letter-spacing:2px}
+.miniMusicHead b{color:#ff4b61;font-size:8px}
+.miniMusicBody{display:grid;grid-template-columns:260px 1fr;gap:12px;padding:12px}
+.miniMusic iframe{width:260px;height:146px;border:0;border-radius:7px;background:#000}
+.miniMusicSearch{display:flex;align-items:center;gap:8px}
+.miniMusicSearch input{margin:0;flex:1;min-width:0;height:38px}
+.miniMusicSearch button{height:38px;padding:0 16px;background:#e31334;border-color:#e31334;color:#fff;font-size:9px;letter-spacing:1px}
+@media(max-width:650px){.miniMusicBody{grid-template-columns:1fr}.miniMusic iframe{width:100%;height:190px}}

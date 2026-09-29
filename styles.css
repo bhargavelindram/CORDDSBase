@@ -115,3 +115,25 @@ aside h2{color:#fff;font-size:14px}
 .nav:hover{box-shadow:0 0 0 1px rgba(255,255,255,.04) inset}
 .panel{box-shadow:0 20px 60px rgba(0,0,0,.32)}
 .top h1{font-weight:850}
+
+/* OPERATOR + CAMERA V2 */
+#operatorNav{display:grid;gap:7px}
+aside .nav{min-height:46px;padding:12px 13px;border:1px solid transparent;background:transparent}
+aside .nav.active{background:#151a21;border-color:#343c48;box-shadow:inset 3px 0 #ff1738}
+aside .nav:hover{background:#11161c;border-color:#252d37;transform:none}
+aside .nav span{background:#242b34;padding:3px 7px;border-radius:999px;font-size:10px;color:#b7c0ca}
+aside .nav.active span{background:#ff1738;color:#fff}
+aside #leave{margin-top:auto;min-height:44px;border:1px solid #3a2529;background:#120b0e;color:#ff7182;border-radius:10px}
+aside #leave:hover{background:#241015;border-color:#7a2b38}
+.cameraRoomBar #cameraLogout{margin-left:auto;background:#120b0e;color:#ff7182;border-color:#512630}
+.cameraRoomBar #cameraLogout:hover{background:#241015;border-color:#ff4059}
+.collisionIncident{position:relative}
+.collisionIncident .incidentState{font-size:9px;letter-spacing:1px;color:#ff8796;font-weight:900;margin-top:5px}
+.incidentAckPanel{margin-top:12px;padding:14px;border:1px solid #303844;border-radius:12px;background:#080b0f}
+.incidentAckGrid{display:grid;grid-template-columns:minmax(240px,1fr) minmax(180px,.7fr);gap:12px}
+.incidentAckPanel select,.incidentAckPanel button{height:42px}
+.hospitalRow{display:flex;gap:8px;align-items:center;padding:9px;border:1px solid #252c35;border-radius:9px;margin-top:7px;background:#0b0e13}
+.hospitalRow .hospitalInfo{flex:1}.hospitalRow .hospitalStatus{font-size:9px;letter-spacing:1px;font-weight:900}
+.hospitalStatus.pending{color:#e5b94d}.hospitalStatus.accepted{color:#52df91}.hospitalStatus.declined{color:#ff6578}
+.fireBtn{color:#ff9b6b!important;border-color:#693d2b!important}
+@media(max-width:800px){.incidentAckGrid{grid-template-columns:1fr}.cameraRoomBar #cameraLogout{margin-left:0}}

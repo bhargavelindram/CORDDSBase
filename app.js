@@ -113,7 +113,7 @@ for(const base of MUSIC_API_BASES){
 try{
 const controller=new AbortController();
 const timer=setTimeout(()=>controller.abort(),15000);
-const r=await fetch(base+"/music/search?q="+encodeURIComponent(q)+"&limit=100",{cache:"no-store",signal:controller.signal});
+const requestUrl=base+"/music/search?q="+encodeURIComponent(q)+"&limit=100";\nconst fetchOptions={cache:"no-store",signal:controller.signal,mode:"cors"};\nif(location.protocol==="https:" && /^(http:\/\/)(127\\.0\\.0\\.1|localhost)(:\\d+)?$/i.test(base))fetchOptions.targetAddressSpace="loopback";\nconst r=await fetch(requestUrl,fetchOptions);
 clearTimeout(timer);
 if(!r.ok)throw Error("HTTP "+r.status);
 data=await r.json();
@@ -130,7 +130,7 @@ if(!S.musicSearchResults.length&&list)list.innerHTML='<div class="list empty">NO
 }catch(e){
 S.musicSearchResults=[];
 S.musicQueue=[];
-if(list)list.innerHTML='<div class="list empty">YOUTUBE MUSIC SEARCH IS CURRENTLY UNAVAILABLE.</div>';
+if(list)list.innerHTML='<div class="list empty">YOUTUBE MUSIC SEARCH IS CURRENTLY UNAVAILABLE.<br><small>'+escapeHtml(e?.message||e?.name||"Backend connection failed")+'</small></div>';
 if(count)count.textContent="SEARCH UNAVAILABLE";
 console.warn("YouTube Music search",e);
 }finally{

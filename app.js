@@ -35,7 +35,8 @@ list.innerHTML=TELLAPUR_HOSPITALS.map(h=>'<div class="hospitalRow"><div class="h
 }
 
 function showApp(role){$("gate").hidden=true;$("app").hidden=false;S.role=role;$("operatorPanel").hidden=role!=="operator";$("cameraPanel").hidden=role!=="camera";$("operatorNav").hidden=role!=="operator";$("legalNav").hidden=role!=="legal";$("content").classList.toggle("cameraOnlyMode",role==="camera");$("title").textContent=role==="operator"?"Cameras":role==="legal"?"Video Storage":"";setStatus(role.toUpperCase());if(role==="camera"){showView("cameras");initCameraMap()}if(role==="legal"){showView("legal-storage");initGlobalMap();connectGlobalRegistry("legal").catch(e=>console.warn("legal registry",e));refreshLegalStorage()}}
-const MUSIC_API_BASES=["http://127.0.0.1:8000","http://localhost:8000"];\nfunction musicBackendStatus(message){const n=$("musicNow");if(n)n.textContent=message;const c=$("musicLibraryCount");if(c)c.textContent=message}
+const MUSIC_API_BASES=["http://127.0.0.1:8000","http://localhost:8000"];
+function musicBackendStatus(message){const n=$("musicNow");if(n)n.textContent=message;const c=$("musicLibraryCount");if(c)c.textContent=message}
 function loadYouTubePlayerApi(){
 return new Promise((resolve,reject)=>{
 if(window.YT?.Player){resolve();return}
@@ -78,7 +79,8 @@ if(e.data===1)setMusicPlaying(true);
 else if(e.data===2)setMusicPlaying(false);
 else if(e.data===0){nextMusic()}
 },
-onAutoplayBlocked:()=>{const n=$("musicNow");if(n)n.textContent="AUTOPLAY BLOCKED · PRESS PLAY";setMusicPlaying(false)},\nonError:e=>{
+onAutoplayBlocked:()=>{const n=$("musicNow");if(n)n.textContent="AUTOPLAY BLOCKED · PRESS PLAY";setMusicPlaying(false)},
+onError:e=>{
 console.warn("YouTube embed error",e.data);
 const i=S.musicQueue.findIndex(t=>String(t.id)===String(S.musicCurrentId));
 if((e.data===101||e.data===150||e.data===100||e.data===5)&&i>=0&&S.musicQueue.length>1){

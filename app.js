@@ -7,14 +7,40 @@ const LEGAL_PASSWORD="legal";
 const YOLO_THRESHOLD=.20;
 const YOLO_MODEL="https://huggingface.co/webnn/yolo11n/resolve/main/onnx/yolo11n.onnx?download=true";
 const SEGMENT_MS=120000;
-const S={room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),collisions:new Map(),removedCameras:new Set(),ai:{session:null,loading:false,running:false,cameras:new Map(),timers:new Map(),ort:null},map:null,cameraMap:null,globalMap:null,globalMarkers:new Map(),registryRoom:null,globalCameras:new Map(),watchId:null,db:null,audioCtx:null,audioBeatTimer:null,soundOn:true,hospitalLayer:null,attentionBusy:false};
+const S={room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),collisions:new Map(),removedCameras:new Set(),ai:{session:null,loading:false,running:false,cameras:new Map(),timers:new Map(),ort:null},map:null,cameraMap:null,globalMap:null,globalMarkers:new Map(),registryRoom:null,globalCameras:new Map(),watchId:null,db:null,audioCtx:null,audioBeatTimer:null,alarmNodes:new Set(),soundOn:true,hospitalLayer:null,attentionBusy:false,music:[],musicLoaded:false};
 const COCO=["person","bicycle","car","motorcycle","airplane","bus","train","truck","boat","traffic light","fire hydrant","stop sign","parking meter","bench","bird","cat","dog","horse","sheep","cow","elephant","bear","zebra","giraffe","backpack","umbrella","handbag","tie","suitcase","frisbee","skis","snowboard","sports ball","kite","baseball bat","baseball glove","skateboard","surfboard","tennis racket","bottle","wine glass","cup","fork","knife","spoon","bowl","banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake","chair","couch","potted plant","bed","dining table","toilet","tv","laptop","mouse","remote","keyboard","cell phone","microwave","oven","toaster","sink","refrigerator","book","clock","vase","scissors","teddy bear","hair drier","toothbrush"];
 function setStatus(t){$("status").textContent=t}
 function identity(p){return p+"-"+Math.random().toString(36).slice(2,10)}
 function tokenSource(){if(!window.LivekitClient)throw Error("LiveKit SDK did not load. Refresh the page.");if(!LivekitClient.TokenSource?.developmentTokenServer)throw Error("LiveKit TokenSource API is unavailable. Refresh the page.");return LivekitClient.TokenSource.developmentTokenServer(DEFAULT_TOKEN)}
 function sendData(obj){if(!S.room?.localParticipant)return;try{const bytes=new TextEncoder().encode(JSON.stringify(obj));S.room.localParticipant.publishData(bytes,{reliable:true})}catch(e){console.warn("data publish",e)}}
 function showApp(role){$("gate").hidden=true;$("app").hidden=false;S.role=role;$("operatorPanel").hidden=role!=="operator";$("cameraPanel").hidden=role!=="camera";$("operatorNav").hidden=role!=="operator";$("legalNav").hidden=role!=="legal";$("content").classList.toggle("cameraOnlyMode",role==="camera");$("title").textContent=role==="operator"?"Cameras":role==="legal"?"Video Storage":"";setStatus(role.toUpperCase());if(role==="camera"){showView("cameras");initCameraMap()}if(role==="legal"){showView("legal-storage");initGlobalMap();connectGlobalRegistry("legal").catch(e=>console.warn("legal registry",e));refreshLegalStorage()}}
-function showView(view){document.querySelectorAll(".view").forEach(v=>v.hidden=v.id!=="view-"+view);document.querySelectorAll(".nav").forEach(b=>b.classList.toggle("active",b.dataset.view===view));const names={cameras:"Cameras",map:"Live Map",alerts:"Alerts",storage:"Video Storage",ai:"YOLO11 Detection",settings:"Settings","legal-storage":"Video Storage","global-map":"Global Camera Map"};$("title").textContent=names[view];if(view==="map"&&S.map){setTimeout(()=>{S.map.invalidateSize();loadHospitals()},50)}if(view==="global-map"&&S.globalMap)setTimeout(()=>S.globalMap.invalidateSize(),50);if(view==="legal-storage")refreshLegalStorage();if(view==="storage")refreshStorage()}
+async function loadMusicLibrary(){
+if(S.musicLoaded)return;
+const list=$("musicList"),count=$("musicLibraryCount");
+try{
+const r=await fetch("music.json?v=20260929",{cache:"no-store"});if(!r.ok)throw Error("Music library "+r.status);
+const d=await r.json();S.music=d.tracks||[];S.musicLoaded=true;
+if(count)count.textContent=(S.music.length||0)+" TRACKS";
+renderMusic();
+}catch(e){if(list)list.innerHTML='<div class="list empty">Music library could not be loaded.</div>';if(count)count.textContent="OFFLINE";console.warn("music",e)}
+}
+function youtubeEmbed(url){
+try{const u=new URL(url);let id=u.searchParams.get("v");if(!id&&u.hostname.includes("youtu.be"))id=u.pathname.slice(1);return id?"https://www.youtube.com/embed/"+encodeURIComponent(id)+"?autoplay=1&rel=0":""}catch(e){return""}
+}
+function renderMusic(){
+const el=$("musicList");if(!el)return;
+const q=($("musicSearch")?.value||"").trim().toLowerCase(),energy=$("musicEnergy")?.value||"all";
+const rows=S.music.filter(x=>(!q||((x.title+" "+x.artist).toLowerCase().includes(q)))&&(energy==="all"||(energy==="high"?Number(x.energy)>=1:Number(x.energy)===0)));
+el.innerHTML=rows.slice(0,120).map(x=>'<div class="musicItem"><div><b>'+escapeHtml(x.title)+'</b><span>'+escapeHtml(x.artist||"Unknown artist")+'</span></div><div class="musicActions"><small>'+("★ "+Number(x.rating||0).toFixed(2))+'</small><button data-play-music="'+x.id+'">PLAY</button></div></div>').join("")||'<div class="list empty">No songs match this filter.</div>';
+el.querySelectorAll("[data-play-music]").forEach(b=>b.onclick=()=>playMusic(Number(b.dataset.playMusic)));
+}
+function playMusic(id){
+const x=S.music.find(t=>t.id===id);if(!x)return;
+const src=youtubeEmbed(x.playUrl),frame=$("musicPlayer"),now=$("musicNow");
+if(!src||!frame)return;
+frame.src=src;if(now)now.textContent=x.title+" · "+x.artist;
+}
+function showView(view){document.querySelectorAll(".view").forEach(v=>v.hidden=v.id!=="view-"+view);document.querySelectorAll(".nav").forEach(b=>b.classList.toggle("active",b.dataset.view===view));const names={cameras:"Cameras",map:"Live Map",alerts:"Alerts",storage:"Video Storage",ai:"YOLO11 Detection",music:"Music",settings:"Settings","legal-storage":"Video Storage","global-map":"Global Camera Map"};$("title").textContent=names[view];if(view==="map"&&S.map){setTimeout(()=>{S.map.invalidateSize();loadHospitals()},50)}if(view==="global-map"&&S.globalMap)setTimeout(()=>S.globalMap.invalidateSize(),50);if(view==="music")loadMusicLibrary();if(view==="legal-storage")refreshLegalStorage();if(view==="storage")refreshStorage()}
 function initMap(){if(S.map||!window.L)return;S.map=L.map("map").setView([17.3850,78.4867],11);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(S.map)}async function loadHospitals(){if(!S.map||!window.L)return;const center=S.map.getCenter();const radius=18000;const q='[out:json][timeout:20];(node["amenity"="hospital"](around:'+radius+','+center.lat+','+center.lng+');way["amenity"="hospital"](around:'+radius+','+center.lat+','+center.lng+'););out center tags;';const btn=$("loadHospitals");if(btn)btn.disabled=true;try{const r=await fetch("https://overpass-api.de/api/interpreter?data="+encodeURIComponent(q));if(!r.ok)throw Error("Hospital map "+r.status);const d=await r.json();if(S.hospitalLayer)S.hospitalLayer.clearLayers();S.hospitalLayer=L.layerGroup().addTo(S.map);let n=0;for(const x of d.elements||[]){const lat=x.lat??x.center?.lat,lon=x.lon??x.center?.lon;if(!Number.isFinite(lat)||!Number.isFinite(lon)||n>=100)continue;const name=x.tags?.name||"Hospital";const icon=L.divIcon({className:"hospitalPlusIcon",html:"<span>+</span>",iconSize:[26,26],iconAnchor:[13,13]});const m=L.marker([lat,lon],{icon});m.bindPopup("<b>"+escapeHtml(name)+"</b><br><span style='color:#ff1738'>✚ Hospital</span>");m.addTo(S.hospitalLayer);n++}$("mapHint").textContent=n+" hospital locations loaded";}catch(e){$("mapHint").textContent="Hospital data unavailable right now";console.warn(e)}finally{if(btn)btn.disabled=false}}
 
 function upsertMarker(id,lat,lon,name){initMap();if(!S.map)return;let m=S.markers.get(id);if(!m){m=L.marker([lat,lon]).addTo(S.map);m.bindPopup(name);S.markers.set(id,m)}else m.setLatLng([lat,lon]);m.setPopupContent("<b>"+escapeHtml(name)+"</b><br>"+lat.toFixed(5)+", "+lon.toFixed(5))}
@@ -50,9 +76,10 @@ async function refreshStorage(){const list=$("storageList");const rows=await lis
 function unlockAlertAudio(){try{if(!S.audioCtx)S.audioCtx=new (window.AudioContext||window.webkitAudioContext)();if(S.audioCtx.state==="suspended")S.audioCtx.resume()}catch(e){console.warn("audio",e)}}
 function startAttentionAudio(){if(S.role!=="operator"||!S.soundOn)return;unlockAlertAudio();if(S.audioBeatTimer)return;let step=0;const notes=[196,220,261.63,293.66,329.63,293.66,261.63,220];S.audioBeatTimer=setInterval(()=>{try{const ctx=S.audioCtx;if(!ctx||ctx.state==="suspended")return;const now=ctx.currentTime;const o=ctx.createOscillator(),g=ctx.createGain();o.type="triangle";o.frequency.value=notes[step++%notes.length];g.gain.setValueAtTime(.0001,now);g.gain.exponentialRampToValueAtTime(.035,now+.02);g.gain.exponentialRampToValueAtTime(.0001,now+.18);o.connect(g);g.connect(ctx.destination);o.start(now);o.stop(now+.20)}catch(e){}},260)}
 function stopAttentionAudio(){if(S.audioBeatTimer){clearInterval(S.audioBeatTimer);S.audioBeatTimer=null}}
-function stopIncidentPing(x){if(x?.pingTimer){clearInterval(x.pingTimer);x.pingTimer=null}if(x?.reassignTimer){clearTimeout(x.reassignTimer);x.reassignTimer=null}}
+function stopWarningAlarm(){for(const n of [...(S.alarmNodes||[])]){try{n.stop()}catch(e){}try{n.disconnect()}catch(e){}}S.alarmNodes?.clear();try{window.speechSynthesis?.cancel()}catch(e){}}
+function stopIncidentPing(x){if(x?.pingTimer){clearInterval(x.pingTimer);x.pingTimer=null}if(x?.reassignTimer){clearTimeout(x.reassignTimer);x.reassignTimer=null}stopWarningAlarm()}
 function startIncidentPing(x){if(!x||x.status!=="ACTIVE")return;stopIncidentPing(x);playWarningAlarm();x.pingTimer=setInterval(()=>{if(x.status==="ACTIVE")playWarningAlarm();else stopIncidentPing(x)},2200);x.reassignTimer=setTimeout(()=>reassignCollision(x.id),30000)}
-function playWarningAlarm(){try{unlockAlertAudio();const ctx=S.audioCtx;if(!ctx)return;const now=ctx.currentTime;for(let i=0;i<5;i++){const o=ctx.createOscillator(),g=ctx.createGain();o.type="square";o.frequency.setValueAtTime(i%2?520:980,now+i*.34);g.gain.setValueAtTime(.0001,now+i*.34);g.gain.exponentialRampToValueAtTime(.65,now+i*.34+.025);g.gain.exponentialRampToValueAtTime(.0001,now+i*.34+.27);o.connect(g);g.connect(ctx.destination);o.start(now+i*.34);o.stop(now+i*.34+.29)}}catch(e){}try{const u=new SpeechSynthesisUtterance("WARNING. VEHICLE COLLISION DETECTED.");u.rate=.92;u.pitch=.75;u.volume=1;window.speechSynthesis?.cancel();window.speechSynthesis?.speak(u)}catch(e){}}
+function playWarningAlarm(){try{unlockAlertAudio();const ctx=S.audioCtx;if(!ctx)return;const now=ctx.currentTime;for(let i=0;i<5;i++){const o=ctx.createOscillator(),g=ctx.createGain(),t=now+i*.34;o.type="square";o.frequency.setValueAtTime(i%2?520:980,t);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.65,t+.025);g.gain.exponentialRampToValueAtTime(.0001,t+.27);o.connect(g);g.connect(ctx.destination);S.alarmNodes.add(o);o.addEventListener("ended",()=>S.alarmNodes.delete(o),{once:true});o.start(t);o.stop(t+.29)}}catch(e){}try{const u=new SpeechSynthesisUtterance("WARNING. VEHICLE COLLISION DETECTED.");u.rate=.92;u.pitch=.75;u.volume=1;window.speechSynthesis?.cancel();window.speechSynthesis?.speak(u)}catch(e){}}
 
 function reassignCollision(id){
 const x=S.collisions.get(id);if(!x||x.status!=="ACTIVE"||!S.room)return;
@@ -92,14 +119,14 @@ hint.textContent=hospitals.length+" nearby hospital locations found. Acceptance 
 function showIncidentResponse(id){const p=$("incidentAckPanel");if(!p)return;p.hidden=false;p.dataset.incident=id;loadIncidentHospitals(id)}
 function acknowledgeCollision(id){
 const x=S.collisions.get(id);if(!x)return;
-x.status="ACKNOWLEDGED";stopIncidentPing(x);renderCollisionControl();showIncidentResponse(id);
+x.status="ACKNOWLEDGED";stopIncidentPing(x);$("emergencyBanner").hidden=true;renderCollisionControl();showIncidentResponse(id);
 }
 function ignoreCollision(id){
 const x=S.collisions.get(id);if(!x)return;
-x.status="IGNORED";renderCollisionControl();
+x.status="IGNORED";stopIncidentPing(x);if($("emergencyBanner"))$("emergencyBanner").hidden=true;renderCollisionControl();
 }
 function clearCollision(id){
-S.collisions.delete(id);renderCollisionControl();
+const x=S.collisions.get(id);if(x)stopIncidentPing(x);S.collisions.delete(id);if($("emergencyBanner"))$("emergencyBanner").hidden=true;renderCollisionControl();
 }
 function renderCollisionControl(){
 const activeEl=$("collisionOps"),ackEl=$("acknowledgedOps"),ignoreEl=$("ignoredOps");
@@ -273,6 +300,7 @@ $("closeReplay").onclick=closeReplay;$("replayModal").addEventListener("click",e
 $("hospitalAcceptance")?.addEventListener("change",e=>{const p=$("incidentAckPanel"),id=p?.dataset.incident,x=id&&S.collisions.get(id);if(x)x.hospitalStatus=e.target.value});
 $("hospitalSelect")?.addEventListener("change",e=>{const p=$("incidentAckPanel"),id=p?.dataset.incident,x=id&&S.collisions.get(id);if(!x||!e.target.value)return;try{x.hospital=JSON.parse(e.target.value);x.hospitalStatus="PENDING";$("hospitalAcceptance").value="PENDING"}catch(err){}});
 $("callFireServices")?.addEventListener("click",()=>{window.location.href="tel:101"});
+$("musicSearch")?.addEventListener("input",renderMusic);$("musicEnergy")?.addEventListener("change",renderMusic);loadMusicLibrary();
 $("soundToggle").onclick=()=>{S.soundOn=!S.soundOn;$("soundToggle").textContent=S.soundOn?"ATTENTION AUDIO: ON":"ATTENTION AUDIO: OFF";if(S.soundOn)startAttentionAudio();else stopAttentionAudio()};
 $("emergencyReplay").onclick=()=>{const x=[...S.collisions.values()].find(x=>x.time===Number($("emergencyBanner").dataset.time));if(x)openAlertReplay({camera:x.camera,score:x.score,time:x.time})};
 

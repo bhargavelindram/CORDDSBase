@@ -1,11 +1,16 @@
 import base64, os, time
 from collections import defaultdict, deque
 from typing import Dict
+from urllib.parse import quote
 import cv2, numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from ultralytics import YOLO
+try:
+    from ytmusicapi import YTMusic
+except Exception:
+    YTMusic = None
 
 app = FastAPI(title="CORDDSBase YOLO11x Temporal Accident AI")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
@@ -18,6 +23,8 @@ ALERT_COOLDOWN=6.0
 model=YOLO(MODEL_PATH)
 history:Dict[str,deque]=defaultdict(lambda:deque(maxlen=WINDOW_FRAMES))
 last_alert:Dict[str,float]={}
+music_client = YTMusic() if YTMusic else None
+music_cache:dict[str,tuple[float,list[dict]]] = {}
 
 class Frame(BaseModel):
     camera_id:str
@@ -62,6 +69,42 @@ def score_window(cam):
     reason=f"5-second/40-frame window; motion spike {motion_spike:.2f}; optical-flow spike {flow_spike:.2f}"
     if pair_name:reason+=f"; strongest pair {pair_name} contact {pair_best:.2f}"
     return confidence,reason,pair_name
+
+@app.get("/music/search")
+def music_search(q:str, limit:int=20):
+    """Search the public YouTube Music catalogue and return song results only."""
+    query=q.strip()
+    if not query:
+        raise HTTPException(400,"Search query is required.")
+    if music_client is None:
+        raise HTTPException(503,"YouTube Music search is unavailable. Install ytmusicapi first.")
+    limit=max(1,min(int(limit),25))
+    cached=music_cache.get(query.lower())
+    now=time.time()
+    if cached and now-cached[0] < 300:
+        return {"query":query,"source":"youtube-music","results":cached[1][:limit]}
+    try:
+        raw=music_client.search(query, filter="songs", limit=limit)
+        results=[]
+        for item in raw:
+            video_id=item.get("videoId")
+            if not video_id or item.get("isAvailable") is False:
+                continue
+            artists=", ".join(a.get("name","") for a in (item.get("artists") or []) if a.get("name"))
+            album=(item.get("album") or {}).get("name","")
+            results.append({
+                "id":"ytm-"+video_id,
+                "videoId":video_id,
+                "title":item.get("title") or "Unknown song",
+                "artist":artists or "Unknown artist",
+                "album":album,
+                "duration":item.get("duration",""),
+                "playUrl":"https://music.youtube.com/watch?v="+quote(video_id)
+            })
+        music_cache[query.lower()]=(now,results)
+        return {"query":query,"source":"youtube-music","results":results}
+    except Exception as e:
+        raise HTTPException(502,"YouTube Music search failed: "+str(e))
 
 @app.get("/health")
 def health():

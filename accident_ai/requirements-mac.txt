@@ -5,4 +5,4 @@ ultralytics>=8.3.0
 opencv-python>=4.10.0
 numpy>=2.0.0
 requests>=2.32.0
-yt-musicapi==1.12.3
+ytmusicapi==1.12.3

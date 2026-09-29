@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2048 410" role="img" aria-labelledby="title desc">
+<title>CORDDSBase</title><desc>Connected On-Road Disaster Detection System</desc>
+<defs>
+ <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#17120f"/><stop offset=".38" stop-color="#050608"/><stop offset="1" stop-color="#010204"/></linearGradient>
+ <linearGradient id="red" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ff454f"/><stop offset=".55" stop-color="#ff1428"/><stop offset="1" stop-color="#c9001d"/></linearGradient>
+ <filter id="glow"><feGaussianBlur stdDeviation="10" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+<rect width="2048" height="410" fill="url(#bg)"/>
+<path d="M0 30L360 0M2048 30L1688 0M0 370L330 410M2048 370L1718 410" stroke="#17191d" stroke-width="10" opacity=".7"/>
+<text x="1024" y="44" text-anchor="middle" fill="#f5f5f5" font-family="Arial,sans-serif" font-size="47" font-weight="300" letter-spacing="16">CONNECTED ON-ROAD DISASTER DETECTION SYSTEM</text>
+<g transform="translate(1024 210)">
+ <circle r="116" fill="#050608" opacity=".9"/>
+ <path d="M-135 -64 L-60 -64 L-60 -105 L60 -105 L60 -64 L135 -64 L135 64 L60 64 L60 105 L-60 105 L-60 64 L-135 64 Z" fill="url(#red)" filter="url(#glow)"/>
+ <circle r="56" fill="#090a0d" stroke="#ff4b55" stroke-width="5"/>
+ <circle r="33" fill="#15171b" stroke="#ff2437" stroke-width="6"/>
+ <circle r="12" fill="#ff2638" filter="url(#glow)"/>
+</g>
+<g font-family="Arial,sans-serif" font-size="128" font-weight="800" text-anchor="middle" dominant-baseline="middle">
+ <text x="1024" y="245" fill="#ff6670" letter-spacing="18">CORDDS</text>
+ <rect x="980" y="145" width="88" height="190" rx="4" fill="url(#red)" opacity=".96"/>
+</g>
+<text x="1024" y="380" text-anchor="middle" fill="#7d858e" font-family="Arial,sans-serif" font-size="18" letter-spacing="8">CORDDSBase</text>
+</svg>

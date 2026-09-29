@@ -164,3 +164,16 @@ aside #leave:hover{background:#241015;border-color:#7a2b38}
 .musicActions button:hover{background:#ff1738;border-color:#ff1738}
 @media(max-width:1000px){.musicLayout{grid-template-columns:1fr}.musicPlayerWrap{position:relative;top:auto}.musicList{max-height:520px}}
 @media(max-width:700px){.headerLogo{width:130px;height:38px}.musicTools{grid-template-columns:1fr}.musicItem{align-items:flex-start}.musicActions{flex-direction:column;gap:5px}.musicActions button{width:100%}}
+
+/* AUTH + CONTINUOUS LOGOUT + LIVE HOSPITAL STATUS */
+#operatorLogin,#legalLogin{margin-top:14px}
+#operatorLogin button,#legalLogin button{min-height:42px}
+#governmentBtn{cursor:not-allowed;opacity:.42;filter:grayscale(.25)}
+#governmentBtn span{font-size:9px;letter-spacing:1px}
+aside #leave{margin-top:8px}
+.hospitalLiveStatus{min-height:42px;display:flex;align-items:center;padding:0 12px;border:1px solid #303844;border-radius:9px;background:#0b0e13;color:#ffb45c;font-weight:900;font-size:11px;letter-spacing:1px}
+.hospitalStatus{white-space:nowrap}
+.hospitalStatus.accepting{color:#52df91}
+.hospitalStatus.limited-capacity{color:#e5b94d}
+.hospitalStatus.busy{color:#ff9b6b}
+.hospitalStatus.not-responding{color:#ff6578}

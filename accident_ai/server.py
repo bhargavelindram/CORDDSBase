@@ -107,11 +107,11 @@ def music_search(q:str, limit:int=100):
         return {"query":query,"source":"youtube-music","results":cached[1][:limit]}
     try:
         client=get_music_client()
-        raw=client.search(query, filter="songs", limit=limit)
-        # Some YouTube Music locales can return an empty filtered shelf.
-        # Retry the general search and keep only song/video entries.
+        # General search is more reliable across YouTube Music locale/parser changes.
+        raw=client.search(query, limit=limit)
+        # If the general shelf is empty, retry the explicit songs shelf.
         if not raw:
-            raw=client.search(query, limit=max(limit,20))
+            raw=client.search(query, filter="songs", limit=limit)
         results=[]
         seen=set()
         for item in raw:

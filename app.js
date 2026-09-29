@@ -9,7 +9,7 @@ const OPERATOR_PASSWORD="op";
 const YOLO_THRESHOLD=.20;
 const YOLO_MODEL="https://huggingface.co/webnn/yolo11n/resolve/main/onnx/yolo11n.onnx?download=true";
 const SEGMENT_MS=120000;
-const S={musicCurrentId:null,musicPaused:false,room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),collisions:new Map(),removedCameras:new Set(),ai:{session:null,loading:false,running:false,cameras:new Map(),timers:new Map(),ort:null},map:null,cameraMap:null,globalMap:null,globalMarkers:new Map(),registryRoom:null,globalCameras:new Map(),watchId:null,db:null,audioCtx:null,audioBeatTimer:null,alarmNodes:new Set(),soundOn:true,hospitalLayer:null,attentionBusy:false,music:[],musicLoaded:false,hospitalStatusTimer:null,hospitalDirectory:new Map()};
+const S={musicCurrentId:null,musicPaused:false,musicSearchResults:[],musicSearchQuery:"",musicQueue:[],room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),collisions:new Map(),removedCameras:new Set(),ai:{session:null,loading:false,running:false,cameras:new Map(),timers:new Map(),ort:null},map:null,cameraMap:null,globalMap:null,globalMarkers:new Map(),registryRoom:null,globalCameras:new Map(),watchId:null,db:null,audioCtx:null,audioBeatTimer:null,alarmNodes:new Set(),soundOn:true,hospitalLayer:null,attentionBusy:false,music:[],musicLoaded:false,hospitalStatusTimer:null,hospitalDirectory:new Map()};
 const COCO=["person","bicycle","car","motorcycle","airplane","bus","train","truck","boat","traffic light","fire hydrant","stop sign","parking meter","bench","bird","cat","dog","horse","sheep","cow","elephant","bear","zebra","giraffe","backpack","umbrella","handbag","tie","suitcase","frisbee","skis","snowboard","sports ball","kite","baseball bat","baseball glove","skateboard","surfboard","tennis racket","bottle","wine glass","cup","fork","knife","spoon","bowl","banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake","chair","couch","potted plant","bed","dining table","toilet","tv","laptop","mouse","remote","keyboard","cell phone","microwave","oven","toaster","sink","refrigerator","book","clock","vase","scissors","teddy bear","hair drier","toothbrush"];
 function setStatus(t){$("status").textContent=t}
 function identity(p){return p+"-"+Math.random().toString(36).slice(2,10)}
@@ -35,74 +35,120 @@ list.innerHTML=TELLAPUR_HOSPITALS.map(h=>'<div class="hospitalRow"><div class="h
 }
 
 function showApp(role){$("gate").hidden=true;$("app").hidden=false;S.role=role;$("operatorPanel").hidden=role!=="operator";$("cameraPanel").hidden=role!=="camera";$("operatorNav").hidden=role!=="operator";$("legalNav").hidden=role!=="legal";$("content").classList.toggle("cameraOnlyMode",role==="camera");$("title").textContent=role==="operator"?"Cameras":role==="legal"?"Video Storage":"";setStatus(role.toUpperCase());if(role==="camera"){showView("cameras");initCameraMap()}if(role==="legal"){showView("legal-storage");initGlobalMap();connectGlobalRegistry("legal").catch(e=>console.warn("legal registry",e));refreshLegalStorage()}}
-const FEATURED_BANGERS=[
-["Chammak Challo","Akon, Hamsika Iyer"],["Habibi","Indian/Desi Banger"],["Kala Chashma","Amar Arshi, Badshah, Neha Kakkar"],["Kar Gayi Chull","Badshah, Fazilpuria, Neha Kakkar, Sukriti Kakar"],["Abhi Toh Party Shuru Hui Hai","Yo Yo Honey Singh"],["High Heels Te Nachche","Jaz Dhami, Yo Yo Honey Singh, Aastha Gill"],["Brown Munde","AP Dhillon, Gminxr, Gurinder Gill"],["Insane","AP Dhillon"],["Excuses","AP Dhillon"],["Naah","Harrdy Sandhu"],["Lahore","Guru Randhawa"],["Proper Patola","Diljit Dosanjh, Badshah"],["Born to Shine","Diljit Dosanjh"],["Do You Know","Diljit Dosanjh"],["5 Taara","Diljit Dosanjh"],["Mundian To Bach Ke","Panjabi MC"],["Amplifier","Imran Khan"],["Angreji Beat","Gippy Grewal, Honey Singh"],["Desi Kalakaar","Yo Yo Honey Singh"],["Blue Eyes","Yo Yo Honey Singh"],["Party All Night","Yo Yo Honey Singh"],["Manali Trance","Neha Kakkar, Yo Yo Honey Singh"],["Sunny Sunny","Yo Yo Honey Singh, Neha Kakkar"],["Aankh Marey","Neha Kakkar, Mika Singh, Kumar Sanu"],["The Humma Song","Badshah, Jubin Nautiyal, Shashaa Tirupati"],["Tamma Tamma Again","Bappi Lahiri, Anuradha Paudwal, Badshah"],["Bom Diggy Diggy","Zack Knight, Jasmin Walia"],["Gallan Goodiyaan","Yashita Sharma, Manish Kumar Tipu, Farhan Akhtar"],["Jai Jai Shivshankar","Vishal Dadlani, Benny Dayal"],["Ghungroo","Arijit Singh, Shilpa Rao"],["Jhoome Jo Pathaan","Arijit Singh, Sukriti Kakar, Vishal Dadlani, Shekhar Ravjiani"],["Besharam Rang","Shilpa Rao, Caralisa Monteiro, Vishal Dadlani, Shekhar Ravjiani"],["What Jhumka?","Arijit Singh, Jonita Gandhi"],["Thumkeshwari","Rashmeet Kaur, Dev Negi, Sachin-Jigar"],["Param Sundari","Shreya Ghoshal"],["Kamariya","Darshan Raval"],["O Saki Saki","Neha Kakkar, Tulsi Kumar, B Praak"],["Muqabla","Yash Narvekar, Parampara Tandon","https://www.youtube.com/watch?v=l75z7FrYRXI"],["Illegal Weapon 2.0","Jasmine Sandlas, Garry Sandhu"],["Naagin","Aastha Gill"],["Jugnu","Badshah, Nikhita Gandhi"],["Nadiyon Paar","Shamur, Rashmeet Kaur, IP Singh, Sachin-Jigar"]
-];
-function addFeaturedBangers(){
-const base=Array.isArray(S.music)?S.music:[], existing=new Set(base.map(x=>(x.title||"").toLowerCase()));
-let next=base.reduce((m,x)=>Math.max(m,Number(x.id)||0),0)+1;
-for(const item of FEATURED_BANGERS){
-      const title=item[0],artist=item[1],fixedUrl=item[2];
-if(existing.has(title.toLowerCase()))continue;
-base.unshift({id:next++,title,artist,rating:5,energy:2,playUrl:fixedUrl||("https://www.youtube.com/results?search_query="+encodeURIComponent(title+" "+artist))});
-existing.add(title.toLowerCase());
+const MUSIC_API_BASE="http://127.0.0.1:8000";
+function localMusicMatches(q){
+const term=String(q||"").trim().toLowerCase();
+if(!term)return [];
+return (S.music||[]).filter(x=>((x.title||"")+" "+(x.artist||"")).toLowerCase().includes(term)).slice(0,20).map(x=>({...x,source:"corddsbase-library"}));
 }
-S.music=base;
+async function searchYouTubeMusic(){
+const q=($("musicSearch")?.value||"").trim();
+const list=$("musicList"),btn=$("musicSearchBtn"),count=$("musicLibraryCount");
+if(!q){
+S.musicSearchResults=[];S.musicSearchQuery="";S.musicQueue=[];
+if(list)list.innerHTML='<div class="list empty">SEARCH YOUTUBE MUSIC FOR A SONG OR ARTIST.</div>';
+if(count)count.textContent="SEARCH REQUIRED";
+return;
 }
-function searchYouTubeMusic(){renderMusic()}
+if(btn){btn.disabled=true;btn.textContent="SEARCHING…";}
+if(list)list.innerHTML='<div class="list empty">SEARCHING YOUTUBE MUSIC…</div>';
+try{
+const r=await fetch(MUSIC_API_BASE+"/music/search?q="+encodeURIComponent(q)+"&limit=20",{cache:"no-store"});
+if(!r.ok)throw Error("YouTube Music search "+r.status);
+const d=await r.json();
+S.musicSearchResults=(d.results||[]).map(x=>({...x,source:"youtube-music"}));
+S.musicSearchQuery=q;
+S.musicQueue=S.musicSearchResults.slice();
+renderMusic();
+if(count)count.textContent=S.musicSearchResults.length+" YOUTUBE MUSIC RESULTS";
+}catch(e){
+S.musicSearchResults=localMusicMatches(q);
+S.musicSearchQuery=q;
+S.musicQueue=S.musicSearchResults.slice();
+if(list)list.innerHTML=S.musicSearchResults.length
+?S.musicSearchResults.map(x=>'<div class="musicItem"><div><b>'+escapeHtml(x.title)+'</b><span>'+escapeHtml(x.artist||"Unknown artist")+'</span></div><div class="musicActions"><small>LOCAL MATCH</small><button data-play-music="'+x.id+'">PLAY</button></div></div>').join("")
+:'<div class="list empty">YOUTUBE MUSIC SEARCH IS OFFLINE. START THE LOCAL MUSIC BACKEND AND SEARCH AGAIN.</div>';
+list?.querySelectorAll("[data-play-music]").forEach(b=>b.onclick=()=>playMusic(Number(b.dataset.playMusic)));
+if(count)count.textContent="YOUTUBE MUSIC OFFLINE";
+console.warn("YouTube Music search",e);
+}finally{
+if(btn){btn.disabled=false;btn.textContent="SEARCH";}
+}
+}
 async function loadMusicLibrary(){
 if(S.musicLoaded)return;
-const list=$("musicList"),count=$("musicLibraryCount");
 try{
 const r=await fetch("music.json?v=20260929",{cache:"no-store"});if(!r.ok)throw Error("Music library "+r.status);
-const d=await r.json();S.music=d.tracks||[];addFeaturedBangers();S.musicLoaded=true;
-if(count)count.textContent=(S.music.length||0)+" TRACKS";
-renderMusic();
-}catch(e){if(list)list.innerHTML='<div class="list empty">Music library could not be loaded.</div>';if(count)count.textContent="OFFLINE";console.warn("music",e)}
+const d=await r.json();S.music=d.tracks||[];S.musicLoaded=true;
+const count=$("musicLibraryCount");if(count)count.textContent="YOUTUBE MUSIC SEARCH";
+if(!S.musicSearchQuery){
+const list=$("musicList");if(list)list.innerHTML='<div class="list empty">SEARCH YOUTUBE MUSIC TO LOAD SONG RESULTS.</div>';
+}
+}catch(e){
+S.musicLoaded=true;
+const list=$("musicList");if(list)list.innerHTML='<div class="list empty">Music search is ready, but the local fallback library could not be loaded.</div>';
+console.warn("music",e);
+}
 }
 function youtubeEmbed(url){
-try{const u=new URL(url);let id=u.searchParams.get("v");if(!id&&u.hostname.includes("youtu.be"))id=u.pathname.slice(1);return id?"https://www.youtube.com/embed/"+encodeURIComponent(id)+"?autoplay=1&rel=0&enablejsapi=1&playsinline=1&origin="+encodeURIComponent(location.origin):""}catch(e){return""}
+try{
+const u=new URL(url);
+let id=u.searchParams.get("v");
+if(!id&&u.hostname.includes("youtu.be"))id=u.pathname.slice(1);
+return id?"https://www.youtube.com/embed/"+encodeURIComponent(id)+"?autoplay=1&rel=0&enablejsapi=1&playsinline=1&origin="+encodeURIComponent(location.origin):"";
+}catch(e){return""}
 }
 function renderMusic(){
 const el=$("musicList");if(!el)return;
-const q=($("musicSearch")?.value||"").trim().toLowerCase(),energy=$("musicEnergy")?.value||"all";
-const rows=S.music.filter(x=>(!q||((x.title+" "+x.artist).toLowerCase().includes(q)))&&(energy==="all"||(energy==="high"?Number(x.energy)>=1:Number(x.energy)===0)));
-el.innerHTML=rows.slice(0,120).map(x=>'<div class="musicItem"><div><b>'+escapeHtml(x.title)+'</b><span>'+escapeHtml(x.artist||"Unknown artist")+'</span></div><div class="musicActions"><small>'+("★ "+Number(x.rating||0).toFixed(2))+'</small><button data-play-music="'+x.id+'">PLAY</button></div></div>').join("")||'<div class="list empty">No songs match this filter.</div>';
-el.querySelectorAll("[data-play-music]").forEach(b=>b.onclick=()=>playMusic(Number(b.dataset.playMusic)));
+const q=($("musicSearch")?.value||"").trim().toLowerCase();
+const energy=$("musicEnergy")?.value||"all";
+const source=S.musicSearchResults?.length?S.musicSearchResults:(q?localMusicMatches(q):[]);
+const rows=source.filter(x=>energy==="all"||(energy==="high"?Number(x.energy)>=1:Number(x.energy)===0));
+S.musicQueue=rows.slice();
+if(!q&&!S.musicSearchResults?.length){
+el.innerHTML='<div class="list empty">SEARCH YOUTUBE MUSIC TO LOAD SONG RESULTS.</div>';
+return;
 }
-document.addEventListener("DOMContentLoaded",()=>{const q=$("musicSearch");if(q)q.addEventListener("keydown",e=>{if(e.key==="Enter")renderMusic()});});
+el.innerHTML=rows.slice(0,20).map(x=>'<div class="musicItem"><div><b>'+escapeHtml(x.title)+'</b><span>'+escapeHtml(x.artist||"Unknown artist")+'</span></div><div class="musicActions"><small>'+(x.source==="youtube-music"?"YOUTUBE MUSIC":"LOCAL MATCH")+'</small><button data-play-music="'+x.id+'">PLAY</button></div></div>').join("")||'<div class="list empty">No songs matched that search.</div>';
+el.querySelectorAll("[data-play-music]").forEach(b=>b.onclick=()=>playMusic(b.dataset.playMusic));
+}
+document.addEventListener("DOMContentLoaded",()=>{
+const q=$("musicSearch");
+if(q)q.addEventListener("keydown",e=>{if(e.key==="Enter")searchYouTubeMusic()});
+});
 function sendMusicCommand(func,args=[]){
 const frame=$("musicPlayer");if(!frame?.contentWindow)return;
 try{frame.contentWindow.postMessage(JSON.stringify({event:"command",func,args}),"https://www.youtube.com")}catch(e){}
 }
 function playMusic(id){
-const x=S.music.find(t=>t.id===id);if(!x)return;
-const src=youtubeEmbed(x.playUrl),frame=$("musicPlayer"),now=$("musicNow");
+const x=(S.musicQueue||[]).find(t=>String(t.id)===String(id))||(S.music||[]).find(t=>String(t.id)===String(id));
+if(!x)return;
+const src=x.videoId?youtubeEmbed("https://www.youtube.com/watch?v="+encodeURIComponent(x.videoId)):youtubeEmbed(x.playUrl),frame=$("musicPlayer"),now=$("musicNow");
 if(!frame)return;
-S.musicCurrentId=id;S.musicPaused=false;
+S.musicCurrentId=x.id;S.musicPaused=false;
 if(src){
-frame.src=src;
+frame.removeAttribute("srcdoc");frame.src=src;
 if(now)now.textContent=x.title+" · "+x.artist;
 if($("musicMiniNow"))$("musicMiniNow").textContent=x.title+" · "+x.artist;
+const b=$("musicPlayPause");if(b)b.textContent="PAUSE";
 }else{
-frame.removeAttribute("src");
-frame.srcdoc='<html><body style="margin:0;background:#050608;color:#8b949e;font-family:Arial,sans-serif;display:grid;place-items:center;text-align:center"><div><b style="color:#fff;font-size:18px">VIDEO NOT AVAILABLE</b><div style="margin-top:8px">'+escapeHtml(x.title)+'</div><div style="margin-top:5px;font-size:12px">This track has no playable embedded video.</div></div></body></html>';
+frame.removeAttribute("src");frame.srcdoc='<html><body style="margin:0;background:#050608;color:#8b949e;font-family:Arial,sans-serif;display:grid;place-items:center;text-align:center"><div><b style="color:#fff;font-size:18px">SONG UNAVAILABLE</b><div style="margin-top:8px">'+escapeHtml(x.title)+'</div><div style="margin-top:5px;font-size:12px">This YouTube Music result cannot be embedded here.</div></div></body></html>';
 if(now)now.textContent=x.title+" · "+x.artist;
 if($("musicMiniNow"))$("musicMiniNow").textContent=x.title+" · "+x.artist;
 }
 }
 function toggleMusicPlay(){
-if(!S.musicCurrentId){const first=S.music?.[0];if(first)playMusic(first.id);return}
+if(!S.musicCurrentId){const first=S.musicQueue?.[0];if(first)playMusic(first.id);return}
 S.musicPaused=!S.musicPaused;sendMusicCommand(S.musicPaused?"pauseVideo":"playVideo");
 const b=$("musicPlayPause");if(b)b.textContent=S.musicPaused?"PLAY":"PAUSE";
 }
 function nextMusic(){
-if(!S.music?.length)return;
-let i=S.music.findIndex(x=>x.id===S.musicCurrentId);i=i<0?0:(i+1)%S.music.length;playMusic(S.music[i].id);
+if(!S.musicQueue?.length)return;
+let i=S.musicQueue.findIndex(x=>String(x.id)===String(S.musicCurrentId));i=i<0?0:(i+1)%S.musicQueue.length;playMusic(S.musicQueue[i].id);
 }
 function previousMusic(){
-if(!S.music?.length)return;
-let i=S.music.findIndex(x=>x.id===S.musicCurrentId);i=i<=0?S.music.length-1:i-1;playMusic(S.music[i].id);
+if(!S.musicQueue?.length)return;
+let i=S.musicQueue.findIndex(x=>String(x.id)===String(S.musicCurrentId));i=i<=0?S.musicQueue.length-1:i-1;playMusic(S.musicQueue[i].id);
 }
 function showView(view){document.querySelectorAll(".view").forEach(v=>v.hidden=v.id!=="view-"+view);document.querySelectorAll(".nav").forEach(b=>b.classList.toggle("active",b.dataset.view===view));const names={cameras:"Cameras",map:"Live Map",alerts:"Alerts",storage:"Video Storage",ai:"YOLO11 Detection",music:"Music",settings:"Settings","legal-storage":"Video Storage","global-map":"Global Camera Map"};$("title").textContent=names[view];if(view==="map"&&S.map){setTimeout(()=>{S.map.invalidateSize();loadHospitals()},50)}if(view==="global-map"&&S.globalMap)setTimeout(()=>S.globalMap.invalidateSize(),50);if(view==="music")loadMusicLibrary();if(view==="legal-storage")refreshLegalStorage();if(view==="storage")refreshStorage()}
 function initMap(){if(S.map||!window.L)return;S.map=L.map("map").setView([17.3850,78.4867],11);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(S.map)}async function loadHospitals(){if(!S.map||!window.L)return;const center=S.map.getCenter();const radius=18000;const q='[out:json][timeout:20];(node["amenity"="hospital"](around:'+radius+','+center.lat+','+center.lng+');way["amenity"="hospital"](around:'+radius+','+center.lat+','+center.lng+'););out center tags;';const btn=$("loadHospitals");if(btn)btn.disabled=true;try{const r=await fetch("https://overpass-api.de/api/interpreter?data="+encodeURIComponent(q));if(!r.ok)throw Error("Hospital map "+r.status);const d=await r.json();if(S.hospitalLayer)S.hospitalLayer.clearLayers();S.hospitalLayer=L.layerGroup().addTo(S.map);let n=0;for(const x of d.elements||[]){const lat=x.lat??x.center?.lat,lon=x.lon??x.center?.lon;if(!Number.isFinite(lat)||!Number.isFinite(lon)||n>=100)continue;const name=x.tags?.name||"Hospital";const icon=L.divIcon({className:"hospitalPlusIcon",html:"<span>+</span>",iconSize:[26,26],iconAnchor:[13,13]});const m=L.marker([lat,lon],{icon});m.bindPopup("<b>"+escapeHtml(name)+"</b><br><span style='color:#ff1738'>✚ Hospital</span>");m.addTo(S.hospitalLayer);n++}$("mapHint").textContent=n+" hospital locations loaded";}catch(e){$("mapHint").textContent="Hospital data unavailable right now";console.warn(e)}finally{if(btn)btn.disabled=false}}
@@ -372,11 +418,11 @@ renderCollisionControl();
 }catch(err){}
 });
 $("callFireServices")?.addEventListener("click",()=>{window.location.href="tel:101"});
-$("musicSearch")?.addEventListener("input",renderMusic);$("musicEnergy")?.addEventListener("change",renderMusic);loadMusicLibrary();
+$("musicEnergy")?.addEventListener("change",renderMusic);loadMusicLibrary();
 $("musicPlayPause")?.addEventListener("click",toggleMusicPlay);
 $("musicNext")?.addEventListener("click",nextMusic);
 $("musicPrev")?.addEventListener("click",previousMusic);
-$("musicSearchBtn")?.addEventListener("click",()=>renderMusic());
+$("musicSearchBtn")?.addEventListener("click",searchYouTubeMusic);
 $("soundToggle").onclick=()=>{S.soundOn=!S.soundOn;$("soundToggle").textContent=S.soundOn?"ATTENTION AUDIO: ON":"ATTENTION AUDIO: OFF";if(S.soundOn)startAttentionAudio();else stopAttentionAudio()};
 $("emergencyReplay").onclick=()=>{const x=[...S.collisions.values()].find(x=>x.time===Number($("emergencyBanner").dataset.time));if(x)openAlertReplay({camera:x.camera,score:x.score,time:x.time})};
 

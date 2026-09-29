@@ -25,10 +25,17 @@ function cameraCard(id,name,video){let c=S.cameras.get(id);if(c?.card)return c.c
 async function startRecording(id){
 const c=S.cameras.get(id);if(!c||c.recording)return;const video=c.video;const capture=video.captureStream?.bind(video)||video.mozCaptureStream?.bind(video);if(!capture){c.loc.textContent="Recording unavailable in this browser";return}
 const mime=["video/webm;codecs=vp9","video/webm;codecs=vp8","video/webm","video/mp4"].find(x=>MediaRecorder.isTypeSupported(x));if(!mime){c.loc.textContent="No supported recording format";return}
-try{const stream=capture();const begin=()=>{c.recordChunks=[];c.recordSegmentStarted=Date.now();c.recording=true;c.recorder=new MediaRecorder(stream,{mimeType:mime});c.recorder.ondataavailable=e=>{if(e.data.size)c.recordChunks.push(e.data)};c.recorder.onstop=async()=>{const blob=new Blob(c.recordChunks,{type:mime});if(blob.size>1000)await saveRecording({camera:c.name,place:c.locText||"Location unavailable",started:c.recordSegmentStarted,ended:Date.now(),blob,type:mime});if(c.recording)begin()};c.recorder.start(1000);c.recordTimer=setTimeout(()=>{if(c.recorder?.state==="recording")c.recorder.stop()},SEGMENT_MS)};begin()}catch(e){c.loc.textContent="Recording error";console.warn(e)}}
+try{const stream=capture();const begin=()=>{c.recordChunks=[];c.recordSegmentStarted=Date.now();c.recording=true;c.recordMime=mime;c.recorder=new MediaRecorder(stream,{mimeType:mime});c.recorder.ondataavailable=e=>{if(e.data.size)c.recordChunks.push(e.data)};c.recorder.onstop=async()=>{const blob=new Blob(c.recordChunks,{type:mime});if(blob.size>1000)await saveRecording({camera:c.name,place:c.locText||"Location unavailable",started:c.recordSegmentStarted,ended:Date.now(),blob,type:mime});if(c.recording)begin()};c.recorder.start(1000);c.recordTimer=setTimeout(()=>{if(c.recorder?.state==="recording")c.recorder.stop()},SEGMENT_MS)};begin()}catch(e){c.loc.textContent="Recording error";console.warn(e)}}
 async function makeReplay(c,alertTime){
-if(!c?.recorder||c.recorder.state!=="recording"||!c.recordChunks?.length)return null;
-try{await new Promise(resolve=>{let done=false;const finish=()=>{if(!done){done=true;resolve()}};const old=c.recorder.ondataavailable;c.recorder.addEventListener("dataavailable",finish,{once:true});c.recorder.requestData();setTimeout(finish,500)});const blob=new Blob(c.recordChunks,{type:c.recorder.mimeType||"video/webm"});const offset=Math.max(0,(alertTime-c.recordSegmentStarted)/1000-8);return {blob,offset}}catch(e){console.warn("replay capture",e);return null}}
+if(!c?.recordChunks?.length)return null;
+try{
+if(c.recorder?.state==="recording")await new Promise(resolve=>{let done=false;const finish=()=>{if(!done){done=true;resolve()}};c.recorder.addEventListener("dataavailable",finish,{once:true});try{c.recorder.requestData()}catch(e){}setTimeout(finish,700)});
+const type=c.recorder?.mimeType||c.recordMime||"video/webm";
+const blob=new Blob(c.recordChunks,{type});
+if(blob.size<1000)return null;
+const offset=Math.max(0,(alertTime-(c.recordSegmentStarted||alertTime))/1000-8);
+return {blob,offset};
+}catch(e){console.warn("replay capture",e);return null}}
 
 function openDb(){return new Promise((resolve,reject)=>{if(S.db)return resolve(S.db);const r=indexedDB.open("corddsbase-storage",1);r.onupgradeneeded=()=>r.result.createObjectStore("segments",{keyPath:"id",autoIncrement:true});r.onsuccess=()=>{S.db=r.result;resolve(S.db)};r.onerror=()=>reject(r.error)})}
 async function saveRecording(x){try{const db=await openDb();await new Promise((res,rej)=>{const tx=db.transaction("segments","readwrite");tx.objectStore("segments").add(x);tx.oncomplete=res;tx.onerror=()=>rej(tx.error)});refreshStorage()}catch(e){console.warn("recording save",e)}}

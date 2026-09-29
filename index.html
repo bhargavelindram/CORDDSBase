@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>CORDDSBASE</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-<link rel="stylesheet" href="styles.css?v=20260929-major-ui-v1">
+<link rel="stylesheet" href="styles.css?v=20260929-operator-v2">
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.22.3/dist/livekit-client.umd.min.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 </head>
@@ -53,7 +53,7 @@
 </div>
 
 <div id="cameraPanel" class="cameraOnlyPanel" hidden>
-<div class="cameraRoomBar"><span class="cameraBrand">CORDDSBASE CAMERA</span><input id="cameraRoom" placeholder="ROOM CODE"><button id="startCamera">JOIN ROOM & ENABLE CAMERA</button><span id="cameraMsg">NOT CONNECTED</span></div>
+<div class="cameraRoomBar"><span class="cameraBrand">CORDDSBASE CAMERA</span><input id="cameraRoom" placeholder="ROOM CODE"><button id="startCamera">JOIN ROOM & ENABLE CAMERA</button><button id="cameraLogout" type="button">LOG OUT</button><span id="cameraMsg">NOT CONNECTED</span></div>
 <div class="cameraSplit">
 <div class="cameraFeed"><video id="localVideo" autoplay muted playsinline></video><div class="cameraFeedBadge">LIVE CAMERA</div></div>
 <div class="cameraLocation"><div class="cameraLocationHead"><b>CAMERA LOCATION</b><span id="cameraGpsStatus">WAITING FOR GPS</span></div><div id="cameraMap"></div></div>
@@ -72,7 +72,7 @@
 <div><div class="incidentSectionTitle acknowledgedTitle">ACKNOWLEDGED</div><div id="acknowledgedOps" class="collisionOps empty">No acknowledged incidents.</div></div>
 <div><div class="incidentSectionTitle ignoredTitle">IGNORED</div><div id="ignoredOps" class="collisionOps empty">No ignored incidents.</div></div>
 </div><div class="sectionHead alertHead"><div><h2>Detection Alerts</h2><p>YOLO11 detections at or above the 20% confidence threshold.</p></div><button id="clearAlerts">CLEAR ALERTS</button></div>
-<div id="alertsList" class="list empty">No detection alerts yet.</div>
+<div id="alertsList" class="list empty">No detection alerts yet.</div><div id="incidentAckPanel" class="incidentAckPanel" hidden><div class="sectionHead"><div><h3>EMERGENCY RESPONSE</h3><p>Select a nearby hospital and record whether it accepted the patient.</p></div><button id="callFireServices" class="fireBtn">CALL FIRE SERVICES</button></div><div class="incidentAckGrid"><div><label>HOSPITAL</label><select id="hospitalSelect"><option value="">SELECT NEARBY HOSPITAL</option></select><div id="hospitalList"></div></div><div><label>PATIENT / HOSPITAL STATUS</label><select id="hospitalAcceptance"><option value="PENDING">PENDING</option><option value="ACCEPTED">HOSPITAL ACCEPTED PATIENT</option><option value="DECLINED">HOSPITAL DID NOT ACCEPT</option></select><p id="hospitalResponseHint" class="small">This is an operator-recorded status unless a hospital integration is connected.</p></div></div></div>
 </div>
 </section>
 
@@ -126,6 +126,6 @@
 </section>
 </section>
 </main>
-<script src="app.js?v=20260929-major-ui-v1"></script>
+<script src="app.js?v=20260929-operator-v2"></script>
 </body>
 </html>

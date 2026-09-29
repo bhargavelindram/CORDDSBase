@@ -94,12 +94,12 @@ def music_health():
         return {"ok":False,"provider":"youtube-music","error":str(e)}
 
 @app.get("/music/search")
-def music_search(q:str, limit:int=20):
+def music_search(q:str, limit:int=100):
     """Search YouTube Music and return playable song metadata."""
     query=q.strip()
     if not query:
         raise HTTPException(400,"Search query is required.")
-    limit=max(1,min(int(limit),25))
+    limit=max(1,min(int(limit),100))
     cache_key=query.lower()
     cached=music_cache.get(cache_key)
     now=time.time()

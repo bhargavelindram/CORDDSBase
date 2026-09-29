@@ -109,23 +109,31 @@ return;
 if(btn){btn.disabled=true;btn.textContent="SEARCHING…";}
 if(list)list.innerHTML='<div class="list empty">SEARCHING MUSIC…</div>';
 try{
-const local=localMusicMatches(q);
-if(local.length){
-S.musicSearchResults=local;S.musicSearchQuery=q;S.musicQueue=local.slice();renderMusic();
-if(count)count.textContent=local.length+" CORDDSBASE SONG RESULTS";
-return;
-}
-const r=await fetch(MUSIC_API_BASE+"/music/search?q="+encodeURIComponent(q)+"&limit=20",{cache:"no-store"});
-if(!r.ok)throw Error("Music search "+r.status);
+const r=await fetch(MUSIC_API_BASE+"/music/search?q="+encodeURIComponent(q)+"&limit=25",{cache:"no-store"});
+if(!r.ok)throw Error("YouTube Music search "+r.status);
 const d=await r.json();
 S.musicSearchResults=(d.results||[]).map(x=>({...x,source:"youtube-music"}));
-S.musicSearchQuery=q;S.musicQueue=S.musicSearchResults.slice();renderMusic();
+S.musicSearchQuery=q;
+S.musicQueue=S.musicSearchResults.slice();
+renderMusic();
 if(count)count.textContent=S.musicSearchResults.length+" YOUTUBE MUSIC SONGS";
+if(!S.musicSearchResults.length){
+const local=localMusicMatches(q);
+if(local.length){
+S.musicSearchResults=local;
+S.musicQueue=local.slice();
+renderMusic();
+if(count)count.textContent=local.length+" CORDDSBASE FALLBACK SONGS";
+}
+}
 }catch(e){
-S.musicSearchResults=[];S.musicSearchQuery=q;S.musicQueue=[];
-if(list)list.innerHTML='<div class="list empty">NO SONG RESULTS. START THE CORDDSBASE MUSIC BACKEND FOR FULL YOUTUBE MUSIC SEARCH.</div>';
-if(count)count.textContent="MUSIC SEARCH OFFLINE";
-console.warn("music",e);
+const local=localMusicMatches(q);
+S.musicSearchResults=local;
+S.musicSearchQuery=q;
+S.musicQueue=local.slice();
+renderMusic();
+if(count)count.textContent=local.length?local.length+" LOCAL FALLBACK SONGS":"MUSIC SEARCH OFFLINE";
+console.warn("YouTube Music search",e);
 }finally{
 if(btn){btn.disabled=false;btn.textContent="SEARCH";}
 }

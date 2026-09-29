@@ -56,8 +56,8 @@ function playWarningAlarm(){try{unlockAlertAudio();const ctx=S.audioCtx;if(!ctx)
 
 function reassignCollision(id){
 const x=S.collisions.get(id);if(!x||x.status!=="ACTIVE"||!S.room)return;
-const peers=[...S.room.remoteParticipants.values()].filter(p=>p.identity!==S.room.localParticipant?.identity);
-if(!peers.length){x.reassignWaiting=true;return}
+const peers=[...S.room.remoteParticipants.values()].filter(p=>(p.name==="Operator"||p.identity?.startsWith("operator-"))&&p.identity!==S.room.localParticipant?.identity);
+if(!peers.length){x.reassignWaiting=true;x.reassignTimer=setTimeout(()=>reassignCollision(id),5000);renderCollisionControl();return}
 const target=peers[0];
 x.status="REASSIGNED";stopIncidentPing(x);renderCollisionControl();
 const msg={type:"collision:reassign",id:x.id,camera:x.camera,cameraId:x.cameraId,score:x.score,time:x.time};
@@ -110,7 +110,7 @@ if(!items.length){el.className="collisionOps empty";el.textContent="No "+type.to
 el.className="collisionOps";
 el.innerHTML=items.map(x=>{
 const action=type==="ACTIVE"?'<button data-ack="'+escapeHtml(x.id)+'">ACKNOWLEDGE</button><button class="dangerBtn" data-ignore="'+escapeHtml(x.id)+'">IGNORE</button>':type==="ACKNOWLEDGED"?'<button data-replay="'+escapeHtml(x.id)+'">OPEN REPLAY</button><button class="dangerBtn" data-clear="'+escapeHtml(x.id)+'">CLEAR</button>':'<button data-replay="'+escapeHtml(x.id)+'">OPEN REPLAY</button><button class="dangerBtn" data-clear="'+escapeHtml(x.id)+'">CLEAR</button>';
-return '<div class="collisionIncident"><div><strong>VEHICLE COLLISION</strong><div class="small">'+escapeHtml(x.camera)+' · '+Math.round(x.score*100)+'% · '+new Date(x.time).toLocaleTimeString()+'</div><div class="small">Status: '+escapeHtml(x.status)+'</div></div><div class="recordActions">'+action+'</div></div>'}).join("");
+return '<div class="collisionIncident"><div><strong>VEHICLE COLLISION</strong><div class="small">'+escapeHtml(x.camera)+' · '+Math.round(x.score*100)+'% · '+new Date(x.time).toLocaleTimeString()+'</div><div class="small">Status: '+escapeHtml(x.status)+'</div>'+(x.reassignWaiting?'<div class="incidentState">WAITING FOR ANOTHER OPERATOR</div>':'')+(x.hospital?'<div class="incidentState">HOSPITAL: '+escapeHtml(x.hospital.name)+' · '+escapeHtml(x.hospitalStatus||"PENDING")+'</div>':'')+'</div><div class="recordActions">'+action+'</div></div>'}).join("");
 el.querySelectorAll("[data-ack]").forEach(b=>b.onclick=()=>acknowledgeCollision(b.dataset.ack));
 el.querySelectorAll("[data-ignore]").forEach(b=>b.onclick=()=>ignoreCollision(b.dataset.ignore));
 el.querySelectorAll("[data-clear]").forEach(b=>b.onclick=()=>clearCollision(b.dataset.clear));

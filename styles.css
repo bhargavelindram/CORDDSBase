@@ -183,3 +183,11 @@ aside #leave{margin-top:8px}
 #gate .creatorCredit b{display:inline-block;color:#dce2e8;font-weight:700;letter-spacing:1.2px}
 
 .musicTools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.youtubeSearchBtn{white-space:nowrap}.musicSearchHint{font-size:11px;color:#737d89;margin:-2px 0 10px}.musicItem{display:flex;align-items:center;justify-content:space-between;gap:12px}.musicActions{display:flex;align-items:center;gap:8px;white-space:nowrap}
+
+/* Operator sidebar music controls */
+.sidebarMusicControls{margin-top:auto;padding:12px;border:1px solid #252a33;border-radius:12px;background:#090b0f;display:grid;gap:8px}
+.sidebarMusicTitle{font-size:9px;letter-spacing:1.5px;color:#737d89;font-weight:700}
+.musicMiniNow{font-size:11px;color:#dce2e8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.musicMiniButtons{display:grid;grid-template-columns:38px 1fr 38px;gap:6px}
+.musicMiniButtons button{padding:8px 5px;font-size:10px;border-radius:8px}
+.musicMiniButtons #musicPlayPause{background:#d00;border-color:#d00}

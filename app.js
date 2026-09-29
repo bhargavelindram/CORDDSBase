@@ -9,7 +9,7 @@ const OPERATOR_PASSWORD="op";
 const YOLO_THRESHOLD=.20;
 const YOLO_MODEL="https://huggingface.co/webnn/yolo11n/resolve/main/onnx/yolo11n.onnx?download=true";
 const SEGMENT_MS=120000;
-const S={room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),collisions:new Map(),removedCameras:new Set(),ai:{session:null,loading:false,running:false,cameras:new Map(),timers:new Map(),ort:null},map:null,cameraMap:null,globalMap:null,globalMarkers:new Map(),registryRoom:null,globalCameras:new Map(),watchId:null,db:null,audioCtx:null,audioBeatTimer:null,alarmNodes:new Set(),soundOn:true,hospitalLayer:null,attentionBusy:false,music:[],musicLoaded:false,hospitalStatusTimer:null,hospitalDirectory:new Map()};
+const S={musicCurrentId:null,musicPaused:false,room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),collisions:new Map(),removedCameras:new Set(),ai:{session:null,loading:false,running:false,cameras:new Map(),timers:new Map(),ort:null},map:null,cameraMap:null,globalMap:null,globalMarkers:new Map(),registryRoom:null,globalCameras:new Map(),watchId:null,db:null,audioCtx:null,audioBeatTimer:null,alarmNodes:new Set(),soundOn:true,hospitalLayer:null,attentionBusy:false,music:[],musicLoaded:false,hospitalStatusTimer:null,hospitalDirectory:new Map()};
 const COCO=["person","bicycle","car","motorcycle","airplane","bus","train","truck","boat","traffic light","fire hydrant","stop sign","parking meter","bench","bird","cat","dog","horse","sheep","cow","elephant","bear","zebra","giraffe","backpack","umbrella","handbag","tie","suitcase","frisbee","skis","snowboard","sports ball","kite","baseball bat","baseball glove","skateboard","surfboard","tennis racket","bottle","wine glass","cup","fork","knife","spoon","bowl","banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake","chair","couch","potted plant","bed","dining table","toilet","tv","laptop","mouse","remote","keyboard","cell phone","microwave","oven","toaster","sink","refrigerator","book","clock","vase","scissors","teddy bear","hair drier","toothbrush"];
 function setStatus(t){$("status").textContent=t}
 function identity(p){return p+"-"+Math.random().toString(36).slice(2,10)}
@@ -60,7 +60,7 @@ renderMusic();
 }catch(e){if(list)list.innerHTML='<div class="list empty">Music library could not be loaded.</div>';if(count)count.textContent="OFFLINE";console.warn("music",e)}
 }
 function youtubeEmbed(url){
-try{const u=new URL(url);let id=u.searchParams.get("v");if(!id&&u.hostname.includes("youtu.be"))id=u.pathname.slice(1);return id?"https://www.youtube.com/embed/"+encodeURIComponent(id)+"?autoplay=1&rel=0":""}catch(e){return""}
+try{const u=new URL(url);let id=u.searchParams.get("v");if(!id&&u.hostname.includes("youtu.be"))id=u.pathname.slice(1);return id?"https://www.youtube.com/embed/"+encodeURIComponent(id)+"?autoplay=1&rel=0&enablejsapi=1&playsinline=1&origin="+encodeURIComponent(location.origin):""}catch(e){return""}
 }
 function renderMusic(){
 const el=$("musicList");if(!el)return;
@@ -70,18 +70,38 @@ el.innerHTML=rows.slice(0,120).map(x=>'<div class="musicItem"><div><b>'+escapeHt
 el.querySelectorAll("[data-play-music]").forEach(b=>b.onclick=()=>playMusic(Number(b.dataset.playMusic)));
 }
 document.addEventListener("DOMContentLoaded",()=>{const q=$("musicSearch");if(q)q.addEventListener("keydown",e=>{if(e.key==="Enter")renderMusic()});});
+function sendMusicCommand(func,args=[]){
+const frame=$("musicPlayer");if(!frame?.contentWindow)return;
+try{frame.contentWindow.postMessage(JSON.stringify({event:"command",func,args}),"https://www.youtube.com")}catch(e){}
+}
 function playMusic(id){
 const x=S.music.find(t=>t.id===id);if(!x)return;
 const src=youtubeEmbed(x.playUrl),frame=$("musicPlayer"),now=$("musicNow");
 if(!frame)return;
+S.musicCurrentId=id;S.musicPaused=false;
 if(src){
 frame.src=src;
 if(now)now.textContent=x.title+" · "+x.artist;
+if($("musicMiniNow"))$("musicMiniNow").textContent=x.title+" · "+x.artist;
 }else{
 frame.removeAttribute("src");
-frame.srcdoc='<html><body style="margin:0;background:#050608;color:#8b949e;font-family:Arial,sans-serif;display:grid;place-items:center;text-align:center"><div><b style="color:#fff;font-size:18px">SONG SELECTED</b><div style="margin-top:8px">'+escapeHtml(x.title)+'</div><div style="margin-top:5px;font-size:12px">No embedded video is linked for this track yet.</div></div></body></html>';
+frame.srcdoc='<html><body style="margin:0;background:#050608;color:#8b949e;font-family:Arial,sans-serif;display:grid;place-items:center;text-align:center"><div><b style="color:#fff;font-size:18px">VIDEO NOT AVAILABLE</b><div style="margin-top:8px">'+escapeHtml(x.title)+'</div><div style="margin-top:5px;font-size:12px">This track has no playable embedded video.</div></div></body></html>';
 if(now)now.textContent=x.title+" · "+x.artist;
+if($("musicMiniNow"))$("musicMiniNow").textContent=x.title+" · "+x.artist;
 }
+}
+function toggleMusicPlay(){
+if(!S.musicCurrentId){const first=S.music?.[0];if(first)playMusic(first.id);return}
+S.musicPaused=!S.musicPaused;sendMusicCommand(S.musicPaused?"pauseVideo":"playVideo");
+const b=$("musicPlayPause");if(b)b.textContent=S.musicPaused?"PLAY":"PAUSE";
+}
+function nextMusic(){
+if(!S.music?.length)return;
+let i=S.music.findIndex(x=>x.id===S.musicCurrentId);i=i<0?0:(i+1)%S.music.length;playMusic(S.music[i].id);
+}
+function previousMusic(){
+if(!S.music?.length)return;
+let i=S.music.findIndex(x=>x.id===S.musicCurrentId);i=i<=0?S.music.length-1:i-1;playMusic(S.music[i].id);
 }
 function showView(view){document.querySelectorAll(".view").forEach(v=>v.hidden=v.id!=="view-"+view);document.querySelectorAll(".nav").forEach(b=>b.classList.toggle("active",b.dataset.view===view));const names={cameras:"Cameras",map:"Live Map",alerts:"Alerts",storage:"Video Storage",ai:"YOLO11 Detection",music:"Music",settings:"Settings","legal-storage":"Video Storage","global-map":"Global Camera Map"};$("title").textContent=names[view];if(view==="map"&&S.map){setTimeout(()=>{S.map.invalidateSize();loadHospitals()},50)}if(view==="global-map"&&S.globalMap)setTimeout(()=>S.globalMap.invalidateSize(),50);if(view==="music")loadMusicLibrary();if(view==="legal-storage")refreshLegalStorage();if(view==="storage")refreshStorage()}
 function initMap(){if(S.map||!window.L)return;S.map=L.map("map").setView([17.3850,78.4867],11);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(S.map)}async function loadHospitals(){if(!S.map||!window.L)return;const center=S.map.getCenter();const radius=18000;const q='[out:json][timeout:20];(node["amenity"="hospital"](around:'+radius+','+center.lat+','+center.lng+');way["amenity"="hospital"](around:'+radius+','+center.lat+','+center.lng+'););out center tags;';const btn=$("loadHospitals");if(btn)btn.disabled=true;try{const r=await fetch("https://overpass-api.de/api/interpreter?data="+encodeURIComponent(q));if(!r.ok)throw Error("Hospital map "+r.status);const d=await r.json();if(S.hospitalLayer)S.hospitalLayer.clearLayers();S.hospitalLayer=L.layerGroup().addTo(S.map);let n=0;for(const x of d.elements||[]){const lat=x.lat??x.center?.lat,lon=x.lon??x.center?.lon;if(!Number.isFinite(lat)||!Number.isFinite(lon)||n>=100)continue;const name=x.tags?.name||"Hospital";const icon=L.divIcon({className:"hospitalPlusIcon",html:"<span>+</span>",iconSize:[26,26],iconAnchor:[13,13]});const m=L.marker([lat,lon],{icon});m.bindPopup("<b>"+escapeHtml(name)+"</b><br><span style='color:#ff1738'>✚ Hospital</span>");m.addTo(S.hospitalLayer);n++}$("mapHint").textContent=n+" hospital locations loaded";}catch(e){$("mapHint").textContent="Hospital data unavailable right now";console.warn(e)}finally{if(btn)btn.disabled=false}}
@@ -352,6 +372,10 @@ renderCollisionControl();
 });
 $("callFireServices")?.addEventListener("click",()=>{window.location.href="tel:101"});
 $("musicSearch")?.addEventListener("input",renderMusic);$("musicEnergy")?.addEventListener("change",renderMusic);loadMusicLibrary();
+$("musicPlayPause")?.addEventListener("click",toggleMusicPlay);
+$("musicNext")?.addEventListener("click",nextMusic);
+$("musicPrev")?.addEventListener("click",previousMusic);
+$("musicSearchBtn")?.addEventListener("click",()=>renderMusic());
 $("soundToggle").onclick=()=>{S.soundOn=!S.soundOn;$("soundToggle").textContent=S.soundOn?"ATTENTION AUDIO: ON":"ATTENTION AUDIO: OFF";if(S.soundOn)startAttentionAudio();else stopAttentionAudio()};
 $("emergencyReplay").onclick=()=>{const x=[...S.collisions.values()].find(x=>x.time===Number($("emergencyBanner").dataset.time));if(x)openAlertReplay({camera:x.camera,score:x.score,time:x.time})};
 

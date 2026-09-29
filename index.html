@@ -18,7 +18,8 @@
 <section class="card">
 <h1>CORDDSBASE</h1>
 <p>Security camera command interface</p>
-<div class="actions"><button id="operatorBtn">OPERATOR</button><button id="cameraBtn">CAMERA</button></div>
+<div class="actions"><button id="operatorBtn">OPERATOR</button><button id="legalBtn" class="legalBtn">LEGAL SIGN IN</button><button id="cameraBtn">CAMERA</button></div>
+<div id="legalLogin" class="legalLogin" hidden><input id="legalUser" placeholder="Legal ID" autocomplete="username"><input id="legalPass" type="password" placeholder="Password" autocomplete="current-password"><button id="legalSignIn">SIGN IN</button><div id="legalMsg" class="small">Authorized legal access only.</div></div>
 <p id="gateMsg">Ready.</p>
 </section>
 </main>
@@ -26,12 +27,18 @@
 <main id="app" hidden>
 <aside>
 <h2>CORDDSBASE</h2>
+<div id="operatorNav">
 <button class="nav active" data-view="cameras">Cameras <span id="cameraCount">0</span></button>
 <button class="nav" data-view="map">Live Map</button>
 <button class="nav" data-view="alerts">Alerts <span id="alertCount">0</span></button>
 <button class="nav" data-view="storage">Video Storage <span id="recordingCount">0</span></button>
 <button class="nav" data-view="ai">YOLO11 Detection</button>
 <button class="nav" data-view="settings">Settings</button>
+</div>
+<div id="legalNav" hidden>
+<button class="nav active" data-view="legal-storage">Video Storage <span id="legalRecordingCount">0</span></button>
+<button class="nav" data-view="global-map">Global Camera Map <span id="globalCameraCount">0</span></button>
+</div>
 <button id="leave" class="danger">LOG OUT</button>
 </aside>
 
@@ -82,6 +89,26 @@
 </div>
 </section>
 
+<section id="view-legal-storage" class="view" hidden>
+<div class="panel legalStoragePanel">
+<div class="sectionHead"><div><h2>LEGAL VIDEO ARCHIVE</h2><p>Search recorded evidence by date, time and camera location.</p></div></div>
+<div class="legalFilters">
+<div><label>DATE</label><input id="legalDate" type="date"></div>
+<div><label>FROM</label><input id="legalFrom" type="time"></div>
+<div><label>TO</label><input id="legalTo" type="time"></div>
+<div><label>PLACE / CAMERA</label><input id="legalPlace" placeholder="Hyderabad, Tellapur, Camera…"></div>
+<button id="legalClearFilters">CLEAR FILTERS</button>
+</div>
+<div id="legalStorageList" class="list empty">No recordings found.</div>
+</div>
+</section>
+<section id="view-global-map" class="view" hidden>
+<div class="panel mapPanel globalMapPanel">
+<div class="mapToolbar"><div><strong>GLOBAL CORDDS CAMERA REGISTRY</strong><span class="small">Registered CORDDS security cameras across all operational rooms</span></div><div class="globalMapStats"><b id="globalCameraCountTop">0</b><span>REGISTERED CAMERAS</span></div></div>
+<div id="globalMap"></div>
+<div class="mapLegend"><span>● ONLINE CAMERA</span><span>○ LOCATION UNKNOWN</span><span id="globalMapHint">Waiting for registered cameras…</span></div>
+</div>
+</section>
 <section id="view-settings" class="view" hidden>
 <div class="panel">
 <h2>Settings</h2>
@@ -93,6 +120,6 @@
 </section>
 </section>
 </main>
-<script src="app.js?v=20260929-yolo11x-alerts"></script>
+<script src="app.js?v=20260929-legal-global"></script>
 </body>
 </html>

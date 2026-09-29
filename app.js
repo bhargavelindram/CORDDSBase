@@ -9,7 +9,7 @@ const OPERATOR_PASSWORD="op";
 const YOLO_THRESHOLD=.20;
 const YOLO_MODEL="https://huggingface.co/webnn/yolo11n/resolve/main/onnx/yolo11n.onnx?download=true";
 const SEGMENT_MS=120000;
-const S={musicCurrentId:null,musicPaused:false,musicSearchResults:[],musicSearchQuery:"",musicQueue:[],room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),collisions:new Map(),removedCameras:new Set(),ai:{session:null,loading:false,running:false,cameras:new Map(),timers:new Map(),ort:null},map:null,cameraMap:null,globalMap:null,globalMarkers:new Map(),registryRoom:null,globalCameras:new Map(),watchId:null,db:null,audioCtx:null,audioBeatTimer:null,alarmNodes:new Set(),soundOn:true,hospitalLayer:null,attentionBusy:false,music:[],musicLoaded:false,musicPlayerApi:null,hospitalStatusTimer:null,hospitalDirectory:new Map()};
+const S={musicEnabled:true,musicCurrentId:null,musicPaused:false,musicSearchResults:[],musicSearchQuery:"",musicQueue:[],room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),collisions:new Map(),removedCameras:new Set(),ai:{session:null,loading:false,running:false,cameras:new Map(),timers:new Map(),ort:null},map:null,cameraMap:null,globalMap:null,globalMarkers:new Map(),registryRoom:null,globalCameras:new Map(),watchId:null,db:null,audioCtx:null,audioBeatTimer:null,alarmNodes:new Set(),soundOn:true,hospitalLayer:null,attentionBusy:false,music:[],musicLoaded:false,musicPlayerApi:null,hospitalStatusTimer:null,hospitalDirectory:new Map()};
 const COCO=["person","bicycle","car","motorcycle","airplane","bus","train","truck","boat","traffic light","fire hydrant","stop sign","parking meter","bench","bird","cat","dog","horse","sheep","cow","elephant","bear","zebra","giraffe","backpack","umbrella","handbag","tie","suitcase","frisbee","skis","snowboard","sports ball","kite","baseball bat","baseball glove","skateboard","surfboard","tennis racket","bottle","wine glass","cup","fork","knife","spoon","bowl","banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake","chair","couch","potted plant","bed","dining table","toilet","tv","laptop","mouse","remote","keyboard","cell phone","microwave","oven","toaster","sink","refrigerator","book","clock","vase","scissors","teddy bear","hair drier","toothbrush"];
 function setStatus(t){$("status").textContent=t}
 function identity(p){return p+"-"+Math.random().toString(36).slice(2,10)}
@@ -162,6 +162,7 @@ return '<div class="musicItem" data-music-id="'+escapeHtml(String(x.id))+'"><div
 el.querySelectorAll("[data-play-music]").forEach(b=>b.onclick=()=>playMusic(b.dataset.playMusic));
 }
 async function playMusic(id,fromError=false){
+if(!S.musicEnabled)return;
 const x=(S.musicQueue||[]).find(t=>String(t.id)===String(id))||(S.music||[]).find(t=>String(t.id)===String(id));
 if(!x)return;
 S.musicCurrentId=x.id;S.musicPaused=false;setMusicUi(x);
@@ -184,15 +185,16 @@ const p=S.musicPlayerApi;if(!p)return;
 try{p[func]?.()}catch(e){console.warn("music command",e)}
 }
 function toggleMusicPlay(){
+if(!S.musicEnabled)return;
 if(!S.musicCurrentId){const first=S.musicQueue?.[0];if(first)playMusic(first);return}
 if(S.musicPaused){sendMusicCommand("playVideo")}else{sendMusicCommand("pauseVideo")}
 }
 function nextMusic(){
-if(!S.musicQueue?.length)return;
+if(!S.musicEnabled||!S.musicQueue?.length)return;
 let i=S.musicQueue.findIndex(x=>String(x.id)===String(S.musicCurrentId));i=i<0?0:(i+1)%S.musicQueue.length;playMusic(S.musicQueue[i].id);
 }
 function previousMusic(){
-if(!S.musicQueue?.length)return;
+if(!S.musicEnabled||!S.musicQueue?.length)return;
 let i=S.musicQueue.findIndex(x=>String(x.id)===String(S.musicCurrentId));i=i<=0?S.musicQueue.length-1:i-1;playMusic(S.musicQueue[i].id);
 }
 function showView(view){document.querySelectorAll(".view").forEach(v=>v.hidden=v.id!=="view-"+view);document.querySelectorAll(".nav").forEach(b=>b.classList.toggle("active",b.dataset.view===view));const names={cameras:"Cameras",map:"Live Map",alerts:"Alerts",storage:"Video Storage",ai:"YOLO11 Detection",music:"Music",settings:"Settings","legal-storage":"Video Storage","global-map":"Global Camera Map"};$("title").textContent=names[view];if(view==="map"&&S.map){setTimeout(()=>{S.map.invalidateSize();loadHospitals()},50)}if(view==="global-map"&&S.globalMap)setTimeout(()=>S.globalMap.invalidateSize(),50);if(view==="music")loadMusicLibrary();if(view==="legal-storage")refreshLegalStorage();if(view==="storage")refreshStorage()}
@@ -469,6 +471,22 @@ $("musicSearch")?.addEventListener("keydown",e=>{if(e.key==="Enter")searchYouTub
 $("musicPlayPause")?.addEventListener("click",toggleMusicPlay);
 $("musicNext")?.addEventListener("click",nextMusic);
 $("musicPrev")?.addEventListener("click",previousMusic);
+$("musicDisable")?.addEventListener("click",()=>{
+S.musicEnabled=!S.musicEnabled;
+const b=$("musicDisable");
+if(!S.musicEnabled){
+try{S.musicPlayerApi?.stopVideo?.()}catch(e){}
+S.musicPaused=true;
+setMusicPlaying(false);
+if(b)b.textContent="MUSIC: OFF";
+if(b)b.classList.add("musicDisabled");
+const n=$("musicNow");if(n)n.textContent="MUSIC DISABLED";
+}else{
+if(b)b.textContent="MUSIC: ON";
+if(b)b.classList.remove("musicDisabled");
+const n=$("musicNow");if(n)n.textContent=S.musicCurrentId?"READY TO PLAY":"SELECT A SONG TO PLAY";
+}
+});
 $("musicMainPlayPause")?.addEventListener("click",toggleMusicPlay);
 $("musicMainNext")?.addEventListener("click",nextMusic);
 $("musicMainPrev")?.addEventListener("click",previousMusic);

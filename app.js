@@ -480,6 +480,13 @@ $("musicPrev")?.addEventListener("click",previousMusic);
 $("musicMainPlayPause")?.addEventListener("click",toggleMusicPlay);
 $("musicMainNext")?.addEventListener("click",nextMusic);
 $("musicMainPrev")?.addEventListener("click",previousMusic);
+$("miniMusicSearchBtn")?.addEventListener("click",()=>{
+const q=($("miniMusicSearch")?.value||"").trim();
+if(q)window.open("https://music.youtube.com/search?q="+encodeURIComponent(q),"_blank","noopener,noreferrer");
+});
+$("miniMusicSearch")?.addEventListener("keydown",e=>{
+if(e.key==="Enter")$("miniMusicSearchBtn")?.click();
+});
 
 $("soundToggle").onclick=()=>{S.soundOn=!S.soundOn;$("soundToggle").textContent=S.soundOn?"ATTENTION AUDIO: ON":"ATTENTION AUDIO: OFF";if(S.soundOn)startAttentionAudio();else stopAttentionAudio()};
 $("emergencyReplay").onclick=()=>{const x=[...S.collisions.values()].find(x=>x.time===Number($("emergencyBanner").dataset.time));if(x)openAlertReplay({camera:x.camera,score:x.score,time:x.time})};

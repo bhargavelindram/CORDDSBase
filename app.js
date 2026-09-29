@@ -9,7 +9,7 @@ const OPERATOR_PASSWORD="op";
 const YOLO_THRESHOLD=.20;
 const YOLO_MODEL="https://huggingface.co/webnn/yolo11n/resolve/main/onnx/yolo11n.onnx?download=true";
 const SEGMENT_MS=120000;
-const S={musicCurrentId:null,musicPaused:false,musicSearchResults:[],musicSearchQuery:"",musicQueue:[],room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),collisions:new Map(),removedCameras:new Set(),ai:{session:null,loading:false,running:false,cameras:new Map(),timers:new Map(),ort:null},map:null,cameraMap:null,globalMap:null,globalMarkers:new Map(),registryRoom:null,globalCameras:new Map(),watchId:null,db:null,audioCtx:null,audioBeatTimer:null,alarmNodes:new Set(),soundOn:true,hospitalLayer:null,attentionBusy:false,music:[],musicLoaded:false,hospitalStatusTimer:null,hospitalDirectory:new Map()};
+const S={musicCurrentId:null,musicPaused:false,musicSearchResults:[],musicSearchQuery:"",musicQueue:[],room:null,role:null,tokenId:DEFAULT_TOKEN,roomName:"",cameras:new Map(),markers:new Map(),alerts:[],alertCooldown:new Map(),collisions:new Map(),removedCameras:new Set(),ai:{session:null,loading:false,running:false,cameras:new Map(),timers:new Map(),ort:null},map:null,cameraMap:null,globalMap:null,globalMarkers:new Map(),registryRoom:null,globalCameras:new Map(),watchId:null,db:null,audioCtx:null,audioBeatTimer:null,alarmNodes:new Set(),soundOn:true,hospitalLayer:null,attentionBusy:false,music:[],musicLoaded:false,musicPlayerApi:null,hospitalStatusTimer:null,hospitalDirectory:new Map()};
 const COCO=["person","bicycle","car","motorcycle","airplane","bus","train","truck","boat","traffic light","fire hydrant","stop sign","parking meter","bench","bird","cat","dog","horse","sheep","cow","elephant","bear","zebra","giraffe","backpack","umbrella","handbag","tie","suitcase","frisbee","skis","snowboard","sports ball","kite","baseball bat","baseball glove","skateboard","surfboard","tennis racket","bottle","wine glass","cup","fork","knife","spoon","bowl","banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake","chair","couch","potted plant","bed","dining table","toilet","tv","laptop","mouse","remote","keyboard","cell phone","microwave","oven","toaster","sink","refrigerator","book","clock","vase","scissors","teddy bear","hair drier","toothbrush"];
 function setStatus(t){$("status").textContent=t}
 function identity(p){return p+"-"+Math.random().toString(36).slice(2,10)}
@@ -36,41 +36,96 @@ list.innerHTML=TELLAPUR_HOSPITALS.map(h=>'<div class="hospitalRow"><div class="h
 
 function showApp(role){$("gate").hidden=true;$("app").hidden=false;S.role=role;$("operatorPanel").hidden=role!=="operator";$("cameraPanel").hidden=role!=="camera";$("operatorNav").hidden=role!=="operator";$("legalNav").hidden=role!=="legal";$("content").classList.toggle("cameraOnlyMode",role==="camera");$("title").textContent=role==="operator"?"Cameras":role==="legal"?"Video Storage":"";setStatus(role.toUpperCase());if(role==="camera"){showView("cameras");initCameraMap()}if(role==="legal"){showView("legal-storage");initGlobalMap();connectGlobalRegistry("legal").catch(e=>console.warn("legal registry",e));refreshLegalStorage()}}
 const MUSIC_API_BASE="http://127.0.0.1:8000";
+function loadYouTubePlayerApi(){
+return new Promise((resolve,reject)=>{
+if(window.YT?.Player){resolve();return}
+if(window.__ytmApiPromise){window.__ytmApiPromise.then(resolve,reject);return}
+window.__ytmApiPromise=new Promise((res,rej)=>{
+const old=window.onYouTubeIframeAPIReady;
+window.onYouTubeIframeAPIReady=()=>{try{old?.();}catch(e){}res()};
+const s=document.createElement("script");s.src="https://www.youtube.com/iframe_api";s.onerror=rej;document.head.appendChild(s);
+});
+window.__ytmApiPromise.then(resolve,reject);
+});
+}
+function musicThumbnail(x){return x?.videoId?"https://i.ytimg.com/vi/"+encodeURIComponent(x.videoId)+"/hqdefault.jpg":""}
+function setMusicUi(x){
+const now=$("musicNow"),title=$("musicNowTitle"),artist=$("musicNowArtist"),art=$("musicArtwork");
+if(now)now.textContent=x?x.title+" · "+(x.artist||"Unknown artist"):"SELECT A SONG TO PLAY";
+if(title)title.textContent=x?.title||"NOT PLAYING";
+if(artist)artist.textContent=x?.artist||"Search for a song to begin";
+if(art){
+const thumb=musicThumbnail(x);
+art.innerHTML=thumb?'<img src="'+thumb+'" alt="">':'<span>♪</span>';
+}
+document.querySelectorAll(".musicItem").forEach(el=>el.classList.toggle("active",String(el.dataset.musicId)===String(x?.id)));
+}
+function setMusicPlaying(playing){
+document.querySelector(".musicPlayerWrap")?.classList.toggle("playing",!!playing);
+["musicPlayPause","musicMainPlayPause"].forEach(id=>{const b=$(id);if(b)b.textContent=playing?"PAUSE":"PLAY"});
+S.musicPaused=!playing;
+}
+async function ensureMusicPlayer(){
+await loadYouTubePlayerApi();
+if(S.musicPlayerApi)return S.musicPlayerApi;
+S.musicPlayerApi=new YT.Player("musicPlayer",{
+width:"320",height:"200",
+playerVars:{autoplay:0,controls:0,playsinline:1,rel:0,iv_load_policy:3,disablekb:1},
+events:{
+onReady:()=>{setMusicPlaying(false)},
+onStateChange:e=>{
+if(e.data===1)setMusicPlaying(true);
+else if(e.data===2)setMusicPlaying(false);
+else if(e.data===0){nextMusic()}
+},
+onError:e=>{
+console.warn("YouTube embed error",e.data);
+const i=S.musicQueue.findIndex(t=>String(t.id)===String(S.musicCurrentId));
+if((e.data===101||e.data===150||e.data===100||e.data===5)&&i>=0&&S.musicQueue.length>1){
+const next=S.musicQueue[(i+1)%S.musicQueue.length];
+if(next.id!==S.musicCurrentId){playMusic(next.id,true);return}
+}
+setMusicPlaying(false);
+const n=$("musicNow");if(n)n.textContent="THIS SONG CANNOT PLAY IN AN EMBEDDED PLAYER";
+}
+}
+});
+return S.musicPlayerApi;
+}
 function localMusicMatches(q){
 const term=String(q||"").trim().toLowerCase();
 if(!term)return [];
-return (S.music||[]).filter(x=>((x.title||"")+" "+(x.artist||"")).toLowerCase().includes(term)).slice(0,20).map(x=>({...x,source:"corddsbase-library"}));
+return (S.music||[]).filter(x=>((x.title||"")+" "+(x.artist||"")).toLowerCase().includes(term)).slice(0,30).map(x=>({...x,source:"corddsbase-library"}));
 }
 async function searchYouTubeMusic(){
 const q=($("musicSearch")?.value||"").trim();
 const list=$("musicList"),btn=$("musicSearchBtn"),count=$("musicLibraryCount");
 if(!q){
 S.musicSearchResults=[];S.musicSearchQuery="";S.musicQueue=[];
-if(list)list.innerHTML='<div class="list empty">SEARCH YOUTUBE MUSIC FOR A SONG OR ARTIST.</div>';
+if(list)list.innerHTML='<div class="list empty">SEARCH FOR A SONG OR ARTIST.</div>';
 if(count)count.textContent="SEARCH REQUIRED";
 return;
 }
 if(btn){btn.disabled=true;btn.textContent="SEARCHING…";}
-if(list)list.innerHTML='<div class="list empty">SEARCHING YOUTUBE MUSIC…</div>';
+if(list)list.innerHTML='<div class="list empty">SEARCHING MUSIC…</div>';
 try{
+const local=localMusicMatches(q);
+if(local.length){
+S.musicSearchResults=local;S.musicSearchQuery=q;S.musicQueue=local.slice();renderMusic();
+if(count)count.textContent=local.length+" CORDDSBASE SONG RESULTS";
+return;
+}
 const r=await fetch(MUSIC_API_BASE+"/music/search?q="+encodeURIComponent(q)+"&limit=20",{cache:"no-store"});
-if(!r.ok)throw Error("YouTube Music search "+r.status);
+if(!r.ok)throw Error("Music search "+r.status);
 const d=await r.json();
 S.musicSearchResults=(d.results||[]).map(x=>({...x,source:"youtube-music"}));
-S.musicSearchQuery=q;
-S.musicQueue=S.musicSearchResults.slice();
-renderMusic();
-if(count)count.textContent=S.musicSearchResults.length+" YOUTUBE MUSIC RESULTS";
+S.musicSearchQuery=q;S.musicQueue=S.musicSearchResults.slice();renderMusic();
+if(count)count.textContent=S.musicSearchResults.length+" YOUTUBE MUSIC SONGS";
 }catch(e){
-S.musicSearchResults=localMusicMatches(q);
-S.musicSearchQuery=q;
-S.musicQueue=S.musicSearchResults.slice();
-if(list)list.innerHTML=S.musicSearchResults.length
-?S.musicSearchResults.map(x=>'<div class="musicItem"><div><b>'+escapeHtml(x.title)+'</b><span>'+escapeHtml(x.artist||"Unknown artist")+'</span></div><div class="musicActions"><small>LOCAL MATCH</small><button data-play-music="'+x.id+'">PLAY</button></div></div>').join("")
-:'<div class="list empty">YOUTUBE MUSIC SEARCH IS OFFLINE. START THE LOCAL MUSIC BACKEND AND SEARCH AGAIN.</div>';
-list?.querySelectorAll("[data-play-music]").forEach(b=>b.onclick=()=>playMusic(Number(b.dataset.playMusic)));
-if(count)count.textContent="YOUTUBE MUSIC OFFLINE";
-console.warn("YouTube Music search",e);
+S.musicSearchResults=[];S.musicSearchQuery=q;S.musicQueue=[];
+if(list)list.innerHTML='<div class="list empty">NO SONG RESULTS. START THE CORDDSBASE MUSIC BACKEND FOR FULL YOUTUBE MUSIC SEARCH.</div>';
+if(count)count.textContent="MUSIC SEARCH OFFLINE";
+console.warn("music",e);
 }finally{
 if(btn){btn.disabled=false;btn.textContent="SEARCH";}
 }
@@ -80,67 +135,47 @@ if(S.musicLoaded)return;
 try{
 const r=await fetch("music.json?v=20260929",{cache:"no-store"});if(!r.ok)throw Error("Music library "+r.status);
 const d=await r.json();S.music=d.tracks||[];S.musicLoaded=true;
-const count=$("musicLibraryCount");if(count)count.textContent="YOUTUBE MUSIC SEARCH";
-if(!S.musicSearchQuery){
-const list=$("musicList");if(list)list.innerHTML='<div class="list empty">SEARCH YOUTUBE MUSIC TO LOAD SONG RESULTS.</div>';
-}
-}catch(e){
-S.musicLoaded=true;
-const list=$("musicList");if(list)list.innerHTML='<div class="list empty">Music search is ready, but the local fallback library could not be loaded.</div>';
-console.warn("music",e);
-}
-}
-function youtubeEmbed(url){
-try{
-const u=new URL(url);
-let id=u.searchParams.get("v");
-if(!id&&u.hostname.includes("youtu.be"))id=u.pathname.slice(1);
-return id?"https://www.youtube.com/embed/"+encodeURIComponent(id)+"?autoplay=1&rel=0&enablejsapi=1&playsinline=1&origin="+encodeURIComponent(location.origin):"";
-}catch(e){return""}
+const count=$("musicLibraryCount");if(count)count.textContent="SEARCH READY";
+const list=$("musicList");if(list)list.innerHTML='<div class="list empty">SEARCH FOR A SONG OR ARTIST.</div>';
+}catch(e){S.musicLoaded=true;console.warn("music",e)}
 }
 function renderMusic(){
 const el=$("musicList");if(!el)return;
 const q=($("musicSearch")?.value||"").trim().toLowerCase();
-const energy=$("musicEnergy")?.value||"all";
 const source=S.musicSearchResults?.length?S.musicSearchResults:(q?localMusicMatches(q):[]);
-const rows=source.filter(x=>energy==="all"||(energy==="high"?Number(x.energy)>=1:Number(x.energy)===0));
-S.musicQueue=rows.slice();
-if(!q&&!S.musicSearchResults?.length){
-el.innerHTML='<div class="list empty">SEARCH YOUTUBE MUSIC TO LOAD SONG RESULTS.</div>';
-return;
-}
-el.innerHTML=rows.slice(0,20).map(x=>'<div class="musicItem"><div><b>'+escapeHtml(x.title)+'</b><span>'+escapeHtml(x.artist||"Unknown artist")+'</span></div><div class="musicActions"><small>'+(x.source==="youtube-music"?"YOUTUBE MUSIC":"LOCAL MATCH")+'</small><button data-play-music="'+x.id+'">PLAY</button></div></div>').join("")||'<div class="list empty">No songs matched that search.</div>';
+S.musicQueue=source.slice();
+if(!q){el.innerHTML='<div class="list empty">SEARCH FOR A SONG OR ARTIST.</div>';return}
+el.innerHTML=source.slice(0,30).map(x=>{
+const thumb=musicThumbnail(x);
+return '<div class="musicItem" data-music-id="'+escapeHtml(String(x.id))+'"><div class="musicMain">'+(thumb?'<img class="musicThumb" src="'+thumb+'" alt="">':'<div class="musicThumb"></div>')+'<div class="musicText"><b>'+escapeHtml(x.title)+'</b><span>'+escapeHtml(x.artist||"Unknown artist")+'</span></div></div><div class="musicActions"><small>'+(x.source==="youtube-music"?"YT MUSIC":"CORDDSBASE")+'</small><button data-play-music="'+escapeHtml(String(x.id))+'">PLAY</button></div></div>'
+}).join("")||'<div class="list empty">NO SONGS FOUND.</div>';
 el.querySelectorAll("[data-play-music]").forEach(b=>b.onclick=()=>playMusic(b.dataset.playMusic));
 }
-document.addEventListener("DOMContentLoaded",()=>{
-const q=$("musicSearch");
-if(q)q.addEventListener("keydown",e=>{if(e.key==="Enter")searchYouTubeMusic()});
-});
-function sendMusicCommand(func,args=[]){
-const frame=$("musicPlayer");if(!frame?.contentWindow)return;
-try{frame.contentWindow.postMessage(JSON.stringify({event:"command",func,args}),"https://www.youtube.com")}catch(e){}
-}
-function playMusic(id){
+async function playMusic(id,fromError=false){
 const x=(S.musicQueue||[]).find(t=>String(t.id)===String(id))||(S.music||[]).find(t=>String(t.id)===String(id));
 if(!x)return;
-const src=x.videoId?youtubeEmbed("https://www.youtube.com/watch?v="+encodeURIComponent(x.videoId)):youtubeEmbed(x.playUrl),frame=$("musicPlayer"),now=$("musicNow");
-if(!frame)return;
-S.musicCurrentId=x.id;S.musicPaused=false;
-if(src){
-frame.removeAttribute("srcdoc");frame.src=src;
-if(now)now.textContent=x.title+" · "+x.artist;
-if($("musicMiniNow"))$("musicMiniNow").textContent=x.title+" · "+x.artist;
-const b=$("musicPlayPause");if(b)b.textContent="PAUSE";
-}else{
-frame.removeAttribute("src");frame.srcdoc='<html><body style="margin:0;background:#050608;color:#8b949e;font-family:Arial,sans-serif;display:grid;place-items:center;text-align:center"><div><b style="color:#fff;font-size:18px">SONG UNAVAILABLE</b><div style="margin-top:8px">'+escapeHtml(x.title)+'</div><div style="margin-top:5px;font-size:12px">This YouTube Music result cannot be embedded here.</div></div></body></html>';
-if(now)now.textContent=x.title+" · "+x.artist;
-if($("musicMiniNow"))$("musicMiniNow").textContent=x.title+" · "+x.artist;
+S.musicCurrentId=x.id;S.musicPaused=false;setMusicUi(x);
+try{
+const player=await ensureMusicPlayer();
+if(!x.videoId&&x.playUrl){
+try{x.videoId=new URL(x.playUrl).searchParams.get("v")}catch(e){}
 }
+if(!x.videoId)throw Error("No playable video ID");
+player.loadVideoById(x.videoId);
+if(!fromError)setMusicPlaying(true);
+}catch(e){
+console.warn("playMusic",e);
+setMusicPlaying(false);
+const n=$("musicNow");if(n)n.textContent="PLAYER COULD NOT LOAD THIS SONG";
+}
+}
+function sendMusicCommand(func){
+const p=S.musicPlayerApi;if(!p)return;
+try{p[func]?.()}catch(e){console.warn("music command",e)}
 }
 function toggleMusicPlay(){
-if(!S.musicCurrentId){const first=S.musicQueue?.[0];if(first)playMusic(first.id);return}
-S.musicPaused=!S.musicPaused;sendMusicCommand(S.musicPaused?"pauseVideo":"playVideo");
-const b=$("musicPlayPause");if(b)b.textContent=S.musicPaused?"PLAY":"PAUSE";
+if(!S.musicCurrentId){const first=S.musicQueue?.[0];if(first)playMusic(first);return}
+if(S.musicPaused){sendMusicCommand("playVideo")}else{sendMusicCommand("pauseVideo")}
 }
 function nextMusic(){
 if(!S.musicQueue?.length)return;
@@ -422,7 +457,7 @@ $("musicEnergy")?.addEventListener("change",renderMusic);loadMusicLibrary();
 $("musicPlayPause")?.addEventListener("click",toggleMusicPlay);
 $("musicNext")?.addEventListener("click",nextMusic);
 $("musicPrev")?.addEventListener("click",previousMusic);
-$("musicSearchBtn")?.addEventListener("click",searchYouTubeMusic);
+
 $("soundToggle").onclick=()=>{S.soundOn=!S.soundOn;$("soundToggle").textContent=S.soundOn?"ATTENTION AUDIO: ON":"ATTENTION AUDIO: OFF";if(S.soundOn)startAttentionAudio();else stopAttentionAudio()};
 $("emergencyReplay").onclick=()=>{const x=[...S.collisions.values()].find(x=>x.time===Number($("emergencyBanner").dataset.time));if(x)openAlertReplay({camera:x.camera,score:x.score,time:x.time})};
 

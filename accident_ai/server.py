@@ -37,11 +37,67 @@ def get_music_client():
     if music_client is None:
         if YTMusic is None:
             raise RuntimeError("ytmusicapi is not installed")
-        # The public, unauthenticated catalogue is sufficient for search.
-        # Use a mobile-style client first because it is less sensitive to
-        # web-player parser changes; fall back to the normal web client.
         music_client = YTMusic(language="en", location="IN")
     return music_client
+
+def _text(node):
+    if isinstance(node, dict):
+        if isinstance(node.get("simpleText"), str):
+            return node["simpleText"]
+        runs=node.get("runs")
+        if isinstance(runs, list):
+            return "".join(str(x.get("text","")) for x in runs if isinstance(x,dict))
+    return ""
+
+def _walk_video_results(node, out):
+    if isinstance(node, dict):
+        vr=node.get("videoRenderer")
+        if isinstance(vr, dict):
+            vid=vr.get("videoId")
+            title=_text(vr.get("title"))
+            artist=_text(vr.get("ownerText")) or _text(vr.get("shortBylineText"))
+            thumbs=(vr.get("thumbnail") or {}).get("thumbnails") or []
+            thumb=thumbs[-1].get("url","") if thumbs else ""
+            if vid and title:
+                out.append({"videoId":vid,"title":title,"artist":artist or "YouTube","thumbnail":thumb})
+        for v in node.values():
+            _walk_video_results(v,out)
+    elif isinstance(node,list):
+        for v in node:
+            _walk_video_results(v,out)
+
+def youtube_web_search(query, limit):
+    import json, re, requests
+    url="https://www.youtube.com/results?search_query="+quote(query)
+    headers={"User-Agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/154 Safari/537.36","Accept-Language":"en-IN,en;q=0.9"}
+    r=requests.get(url,headers=headers,timeout=15)
+    r.raise_for_status()
+    m=re.search(r"var ytInitialData = (.*?);</script>",r.text)
+    if not m:
+        m=re.search(r"ytInitialData\\s*=\\s*(\\{.*?\\})\\s*;",r.text,re.S)
+    if not m:
+        raise RuntimeError("YouTube search page did not return search data")
+    data=json.loads(m.group(1))
+    found=[]
+    _walk_video_results(data,found)
+    results=[]
+    seen=set()
+    for item in found:
+        vid=item["videoId"]
+        if vid in seen: continue
+        seen.add(vid)
+        results.append({
+            "id":"yt-"+vid,
+            "videoId":vid,
+            "title":item["title"],
+            "artist":item["artist"],
+            "album":"",
+            "duration":"",
+            "thumbnail":item["thumbnail"],
+            "playUrl":"https://www.youtube.com/watch?v="+quote(vid)
+        })
+        if len(results)>=limit: break
+    return results
 
 class Frame(BaseModel):
     camera_id:str
@@ -90,15 +146,18 @@ def score_window(cam):
 @app.get("/music/health")
 def music_health():
     try:
-        client=get_music_client()
-        test=client.search("test", filter="songs", limit=5)
-        return {"ok":True,"provider":"youtube-music","search":"ready","results":len(test or [])}
-    except Exception as e:
-        return {"ok":False,"provider":"youtube-music","error":str(e)}
+        results=youtube_web_search("test",5)
+        return {"ok":True,"provider":"youtube","search":"ready","results":len(results)}
+    except Exception as web_error:
+        try:
+            client=get_music_client()
+            test=client.search("test", filter="songs", limit=5)
+            return {"ok":True,"provider":"youtube-music","search":"ready","results":len(test or [])}
+        except Exception as api_error:
+            return {"ok":False,"provider":"youtube","error":str(web_error),"fallback_error":str(api_error)}
 
 @app.get("/music/search")
 def music_search(q:str, limit:int=100):
-    """Search YouTube Music and return playable song metadata."""
     query=q.strip()
     if not query:
         raise HTTPException(400,"Search query is required.")
@@ -107,43 +166,34 @@ def music_search(q:str, limit:int=100):
     cached=music_cache.get(cache_key)
     now=time.time()
     if cached and now-cached[0] < 300:
-        return {"query":query,"source":"youtube-music","results":cached[1][:limit]}
+        return {"query":query,"source":"youtube","results":cached[1][:limit]}
+    errors=[]
+    try:
+        results=youtube_web_search(query,limit)
+        if results:
+            music_cache[cache_key]=(now,results)
+            return {"query":query,"source":"youtube","results":results}
+        errors.append("YouTube web search returned no results")
+    except Exception as e:
+        errors.append("web search: "+str(e))
     try:
         client=get_music_client()
-        # General search is more reliable across YouTube Music locale/parser changes.
         raw=client.search(query, limit=limit)
-        # If the general shelf is empty, retry the explicit songs shelf.
-        if not raw:
-            raw=client.search(query, filter="songs", limit=limit)
-        results=[]
-        seen=set()
+        results=[];seen=set()
         for item in raw:
-            if item.get("resultType") not in (None,"song","video"):
-                continue
             video_id=item.get("videoId")
-            if not video_id or video_id in seen or item.get("isAvailable") is False:
-                continue
+            if not video_id or video_id in seen or item.get("isAvailable") is False: continue
             seen.add(video_id)
             artists=", ".join(a.get("name","") for a in (item.get("artists") or []) if a.get("name"))
-            album=(item.get("album") or {}).get("name","") if isinstance(item.get("album"),dict) else (item.get("album") or "")
             thumbnails=item.get("thumbnails") or []
-            thumb=thumbnails[-1].get("url") if thumbnails and isinstance(thumbnails[-1],dict) else ""
-            results.append({
-                "id":"ytm-"+video_id,
-                "videoId":video_id,
-                "title":item.get("title") or "Unknown song",
-                "artist":artists or "Unknown artist",
-                "album":album,
-                "duration":item.get("duration",""),
-                "thumbnail":thumb,
-                "playUrl":"https://music.youtube.com/watch?v="+quote(video_id)
-            })
-            if len(results)>=limit:
-                break
+            thumb=thumbnails[-1].get("url","") if thumbnails else ""
+            results.append({"id":"ytm-"+video_id,"videoId":video_id,"title":item.get("title") or "Unknown song","artist":artists or "Unknown artist","album":"","duration":item.get("duration",""),"thumbnail":thumb,"playUrl":"https://www.youtube.com/watch?v="+quote(video_id)})
+            if len(results)>=limit: break
         music_cache[cache_key]=(now,results)
         return {"query":query,"source":"youtube-music","results":results}
     except Exception as e:
-        raise HTTPException(502,"YouTube Music search failed: "+str(e))
+        errors.append("ytmusicapi: "+str(e))
+    raise HTTPException(502,"Music search failed: "+" | ".join(errors))
 
 @app.get("/health")
 def health():

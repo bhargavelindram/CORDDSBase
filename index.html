@@ -3,20 +3,21 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>CORDDSBASE</title>
+<title>CORDDSBase</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-<link rel="stylesheet" href="styles.css?v=20260929-operator-v2">
+<link rel="stylesheet" href="styles.css?v=20260929-corddsbase-v3">
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.22.3/dist/livekit-client.umd.min.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 </head>
 <body>
 <div id="emergencyBanner" class="emergencyBanner" hidden><div class="emergencyPulse"></div><div><div class="emergencyTitle">⚠ VEHICLE COLLISION</div><div class="emergencyMeta" id="emergencyCamera">Camera</div><div class="emergencyMeta" id="emergencyTime">--:--</div></div><button id="emergencyReplay">OPEN REPLAY</button></div>
 <div id="replayModal" class="replayModal" hidden><div class="replayCard"><div class="replayTop"><div><div class="replayTitle">ACCIDENT REPLAY</div><div id="replayMeta" class="small"></div></div><button id="closeReplay">CLOSE</button></div><video id="replayVideo" controls playsinline></video><div id="replayEmpty" class="replayEmpty" hidden>Replay is still being captured. Try again in a moment.</div></div></div>
-<header><b>CORDDSBASE</b><div class="headerRight"><button id="soundToggle" class="soundPill">ATTENTION AUDIO: ON</button><span id="status">OFFLINE</span></div></header>
+<header><img class="headerLogo" src="assets/corddsbase-logo.svg" alt="CORDDSBase"><b class="headerWordmark">CORDDSBase</b><div class="headerRight"><button id="soundToggle" class="soundPill">ATTENTION AUDIO: ON</button><span id="status">OFFLINE</span></div></header>
 
 <main id="gate">
 <section class="card">
-<h1>CORDDSBASE</h1>
+<img class="gateLogo" src="assets/corddsbase-logo.svg" alt="CORDDSBase logo">
+<h1>CORDDSBase</h1>
 <p>Security camera command interface</p>
 <div class="actions"><button id="operatorBtn">OPERATOR</button><button id="legalBtn" class="legalBtn">LEGAL</button><button id="cameraBtn">CAMERA</button><button id="createAccountBtn" class="secondaryBtn" disabled>CREATE ACCOUNT <span>DISABLED</span></button></div>
 <div id="legalLogin" class="legalLogin" hidden><input id="legalUser" placeholder="Legal ID" autocomplete="username"><input id="legalPass" type="password" placeholder="Password" autocomplete="current-password"><button id="legalSignIn">SIGN IN</button><div id="legalMsg" class="small">Authorized legal access only.</div></div>
@@ -26,13 +27,14 @@
 
 <main id="app" hidden>
 <aside>
-<h2>CORDDSBASE</h2>
+<h2>CORDDSBase</h2>
 <div id="operatorNav">
 <button class="nav active" data-view="cameras">Cameras <span id="cameraCount">0</span></button>
 <button class="nav" data-view="map">Live Map</button>
 <button class="nav" data-view="alerts">Alerts <span id="alertCount">0</span></button>
 <button class="nav" data-view="storage">Video Storage <span id="recordingCount">0</span></button>
 <button class="nav" data-view="ai">YOLO11 Detection</button>
+<button class="nav" data-view="music">Music <span id="musicCount">1000+</span></button>
 <button class="nav" data-view="settings">Settings</button>
 </div>
 <div id="legalNav" hidden>
@@ -53,7 +55,7 @@
 </div>
 
 <div id="cameraPanel" class="cameraOnlyPanel" hidden>
-<div class="cameraRoomBar"><span class="cameraBrand">CORDDSBASE CAMERA</span><input id="cameraRoom" placeholder="ROOM CODE"><button id="startCamera">JOIN ROOM & ENABLE CAMERA</button><button id="cameraLogout" type="button">LOG OUT</button><span id="cameraMsg">NOT CONNECTED</span></div>
+<div class="cameraRoomBar"><span class="cameraBrand">CORDDSBase CAMERA</span><input id="cameraRoom" placeholder="ROOM CODE"><button id="startCamera">JOIN ROOM & ENABLE CAMERA</button><button id="cameraLogout" type="button">LOG OUT</button><span id="cameraMsg">NOT CONNECTED</span></div>
 <div class="cameraSplit">
 <div class="cameraFeed"><video id="localVideo" autoplay muted playsinline></video><div class="cameraFeedBadge">LIVE CAMERA</div></div>
 <div class="cameraLocation"><div class="cameraLocationHead"><b>CAMERA LOCATION</b><span id="cameraGpsStatus">WAITING FOR GPS</span></div><div id="cameraMap"></div></div>
@@ -115,6 +117,21 @@
 <div class="mapLegend"><span>● ONLINE CAMERA</span><span>○ LOCATION UNKNOWN</span><span id="globalMapHint">Waiting for registered cameras…</span></div>
 </div>
 </section>
+<section id="view-music" class="view" hidden>
+<div class="panel musicPanel">
+  <div class="sectionHead"><div><h2>INDIAN MUSIC</h2><p>1000 energetic Indian/Bollywood tracks. Sleepy/calm-title matches are excluded.</p></div><span class="musicCountBadge" id="musicLibraryCount">LOADING</span></div>
+  <div class="musicLayout">
+    <div class="musicPlayerWrap">
+      <div class="musicNow" id="musicNow">SELECT A SONG TO PLAY</div>
+      <iframe id="musicPlayer" title="CORDDSBase music player" src="about:blank" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+    </div>
+    <div class="musicLibrary">
+      <div class="musicTools"><input id="musicSearch" placeholder="Search song or artist…"><select id="musicEnergy"><option value="all">ALL ENERGY</option><option value="high">HIGH ENERGY</option><option value="medium">UPBEAT</option></select></div>
+      <div id="musicList" class="musicList"><div class="list empty">Loading music library…</div></div>
+    </div>
+  </div>
+</div>
+</section>
 <section id="view-settings" class="view" hidden>
 <div class="panel">
 <h2>Settings</h2>
@@ -126,6 +143,6 @@
 </section>
 </section>
 </main>
-<script src="app.js?v=20260929-operator-v2"></script>
+<script src="app.js?v=20260929-corddsbase-v3"></script>
 </body>
 </html>

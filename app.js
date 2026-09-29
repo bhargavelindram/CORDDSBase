@@ -35,7 +35,7 @@ list.innerHTML=TELLAPUR_HOSPITALS.map(h=>'<div class="hospitalRow"><div class="h
 }
 
 function showApp(role){$("gate").hidden=true;$("app").hidden=false;S.role=role;$("operatorPanel").hidden=role!=="operator";$("cameraPanel").hidden=role!=="camera";$("operatorNav").hidden=role!=="operator";$("legalNav").hidden=role!=="legal";$("content").classList.toggle("cameraOnlyMode",role==="camera");$("title").textContent=role==="operator"?"Cameras":role==="legal"?"Video Storage":"";setStatus(role.toUpperCase());if(role==="camera"){showView("cameras");initCameraMap()}if(role==="legal"){showView("legal-storage");initGlobalMap();connectGlobalRegistry("legal").catch(e=>console.warn("legal registry",e));refreshLegalStorage()}}
-const MUSIC_API_BASE="http://127.0.0.1:8000";
+const MUSIC_API_BASES=["http://127.0.0.1:8000","http://localhost:8000"];
 function loadYouTubePlayerApi(){
 return new Promise((resolve,reject)=>{
 if(window.YT?.Player){resolve();return}
@@ -107,24 +107,33 @@ if(count)count.textContent="SEARCH REQUIRED";
 return;
 }
 if(btn){btn.disabled=true;btn.textContent="SEARCHING…";}
-if(list)list.innerHTML='<div class="list empty">SEARCHING MUSIC…</div>';
+if(list)list.innerHTML='<div class="list empty">SEARCHING YOUTUBE MUSIC…</div>';
 try{
-const r=await fetch(MUSIC_API_BASE+"/music/search?q="+encodeURIComponent(q)+"&limit=25",{cache:"no-store"});
-if(!r.ok)throw Error("YouTube Music search "+r.status);
-const d=await r.json();
+let d=null,lastError=null;
+for(const base of MUSIC_API_BASES){
+  try{
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),8000);
+    const r=await fetch(base+"/music/search?q="+encodeURIComponent(q)+"&limit=25",{cache:"no-store",signal:controller.signal});
+    clearTimeout(timer);
+    if(!r.ok)throw Error("HTTP "+r.status);
+    d=await r.json();
+    break;
+  }catch(err){lastError=err}
+}
+if(!d)throw lastError||Error("Local music backend unavailable");
 S.musicSearchResults=(d.results||[]).map(x=>({...x,source:"youtube-music"}));
 S.musicSearchQuery=q;
 S.musicQueue=S.musicSearchResults.slice();
 renderMusic();
 if(count)count.textContent=S.musicSearchResults.length+" YOUTUBE MUSIC SONGS";
 if(!S.musicSearchResults.length){
-const local=localMusicMatches(q);
-if(local.length){
-S.musicSearchResults=local;
-S.musicQueue=local.slice();
-renderMusic();
-if(count)count.textContent=local.length+" CORDDSBASE FALLBACK SONGS";
-}
+  const local=localMusicMatches(q);
+  S.musicSearchResults=local;
+  S.musicQueue=local.slice();
+  renderMusic();
+  if(count)count.textContent=local.length?local.length+" CORDDSBASE FALLBACK SONGS":"0 RESULTS";
+  if(list&&!local.length)list.innerHTML='<div class="list empty">NO YOUTUBE MUSIC SONGS FOUND.</div>';
 }
 }catch(e){
 const local=localMusicMatches(q);
@@ -132,7 +141,8 @@ S.musicSearchResults=local;
 S.musicSearchQuery=q;
 S.musicQueue=local.slice();
 renderMusic();
-if(count)count.textContent=local.length?local.length+" LOCAL FALLBACK SONGS":"MUSIC SEARCH OFFLINE";
+if(count)count.textContent=local.length?local.length+" LOCAL FALLBACK SONGS":"MUSIC BACKEND OFFLINE";
+if(list&&!local.length)list.innerHTML='<div class="list empty">START THE CORDDSBASE BACKEND, THEN SEARCH AGAIN.</div>';
 console.warn("YouTube Music search",e);
 }finally{
 if(btn){btn.disabled=false;btn.textContent="SEARCH";}

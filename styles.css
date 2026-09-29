@@ -304,3 +304,8 @@ aside #leave{margin-top:8px}
 .miniMusicSearch input{margin:0;flex:1;min-width:0;height:38px}
 .miniMusicSearch button{height:38px;padding:0 16px;background:#e31334;border-color:#e31334;color:#fff;font-size:9px;letter-spacing:1px}
 @media(max-width:650px){.miniMusicBody{grid-template-columns:1fr}.miniMusic iframe{width:100%;height:190px}}
+
+.operatorYtMini{margin:12px 0 16px;border:1px solid #2a3038;border-radius:10px;background:#07090c;overflow:hidden}
+.operatorYtMiniHead{height:34px;padding:0 12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #242a31;color:#dfe3e7;font-size:9px;letter-spacing:1.8px}
+.operatorYtMiniHead span{color:#ff4b61}
+.operatorYtMini iframe{display:block;width:100%;height:220px;border:0;background:#000}

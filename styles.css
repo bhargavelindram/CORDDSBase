@@ -91,3 +91,27 @@ aside h2{color:#fff;font-size:14px}
 .cameraOnlyMode .content{padding:0!important}
 @media(max-width:1000px){.mapTools{flex-wrap:wrap}.mapTools input{width:220px}.cameraGrid{grid-template-columns:1fr}}
 @media(max-width:700px){.content{padding:16px}.mapTools{width:100%}.mapTools input{flex:1;width:auto}.cameraSplit{grid-template-columns:1fr 1fr;grid-template-rows:none}.cameraRoomBar{flex-wrap:nowrap}.cameraBrand{white-space:nowrap}.cameraRoomBar input{width:150px;min-width:100px}}
+
+/* MAJOR UI V1 */
+#gate .actions{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+#gate .actions button{border-radius:12px;min-height:54px}
+#gate .legalBtn{background:#11151b!important;border:1px solid #3b434e!important;box-shadow:none!important}
+#gate .legalBtn:hover{background:#191e25!important;border-color:#596372!important}
+.secondaryBtn{grid-column:1/-1;background:#0d1116!important;border-color:#2e3742!important;color:#8f99a6!important}
+.secondaryBtn:disabled{opacity:.7!important}
+.secondaryBtn span{font-size:9px;letter-spacing:1px;margin-left:5px;color:#ff6578}
+#gate .card{position:relative;overflow:hidden}
+#gate .card:before{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(135deg,rgba(255,23,56,.08),transparent 35%,transparent 70%,rgba(255,23,56,.03))}
+#gate .card>*{position:relative}
+.incidentSections{display:grid;grid-template-columns:1fr;gap:18px;margin-top:18px}
+.incidentSectionTitle{font-size:10px;font-weight:1000;letter-spacing:2px;margin-bottom:8px;padding-left:10px;border-left:3px solid #555}
+.activeTitle{color:#ff5269;border-color:#ff1738}.acknowledgedTitle{color:#f2c45c;border-color:#d6a83d}.ignoredTitle{color:#89929e;border-color:#58616d}
+.incidentSections .collisionOps.empty{padding:15px;background:#080a0d;border:1px dashed #252c35;border-radius:10px}
+.collisionIncident{min-height:66px}
+.collisionIncident .recordActions{flex-wrap:wrap;justify-content:flex-end}
+.collisionIncident button{font-size:11px}
+.mapTools input{border-radius:10px}.mapTools button{border-radius:10px}
+.nav.active{box-shadow:none}
+.nav:hover{box-shadow:0 0 0 1px rgba(255,255,255,.04) inset}
+.panel{box-shadow:0 20px 60px rgba(0,0,0,.32)}
+.top h1{font-weight:850}

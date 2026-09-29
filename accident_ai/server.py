@@ -29,8 +29,16 @@ def get_model():
     return model
 history:Dict[str,deque]=defaultdict(lambda:deque(maxlen=WINDOW_FRAMES))
 last_alert:Dict[str,float]={}
-music_client = YTMusic() if YTMusic else None
+music_client = None
 music_cache:dict[str,tuple[float,list[dict]]] = {}
+
+def get_music_client():
+    global music_client
+    if music_client is None:
+        if YTMusic is None:
+            raise RuntimeError("ytmusicapi is not installed")
+        music_client = YTMusic(language="en", location="IN")
+    return music_client
 
 class Frame(BaseModel):
     camera_id:str
@@ -76,28 +84,47 @@ def score_window(cam):
     if pair_name:reason+=f"; strongest pair {pair_name} contact {pair_best:.2f}"
     return confidence,reason,pair_name
 
+@app.get("/music/health")
+def music_health():
+    try:
+        client=get_music_client()
+        test=client.get_search_suggestions("test")
+        return {"ok":True,"provider":"youtube-music","search":"ready","suggestions":len(test or [])}
+    except Exception as e:
+        return {"ok":False,"provider":"youtube-music","error":str(e)}
+
 @app.get("/music/search")
 def music_search(q:str, limit:int=20):
-    """Search the public YouTube Music catalogue and return song results only."""
+    """Search YouTube Music and return playable song metadata."""
     query=q.strip()
     if not query:
         raise HTTPException(400,"Search query is required.")
-    if music_client is None:
-        raise HTTPException(503,"YouTube Music search is unavailable. Install ytmusicapi first.")
     limit=max(1,min(int(limit),25))
-    cached=music_cache.get(query.lower())
+    cache_key=query.lower()
+    cached=music_cache.get(cache_key)
     now=time.time()
     if cached and now-cached[0] < 300:
         return {"query":query,"source":"youtube-music","results":cached[1][:limit]}
     try:
-        raw=music_client.search(query, filter="songs", limit=limit)
+        client=get_music_client()
+        raw=client.search(query, filter="songs", limit=limit)
+        # Some YouTube Music locales can return an empty filtered shelf.
+        # Retry the general search and keep only song/video entries.
+        if not raw:
+            raw=client.search(query, limit=max(limit,20))
         results=[]
+        seen=set()
         for item in raw:
-            video_id=item.get("videoId")
-            if not video_id or item.get("isAvailable") is False:
+            if item.get("resultType") not in (None,"song","video"):
                 continue
+            video_id=item.get("videoId")
+            if not video_id or video_id in seen or item.get("isAvailable") is False:
+                continue
+            seen.add(video_id)
             artists=", ".join(a.get("name","") for a in (item.get("artists") or []) if a.get("name"))
-            album=(item.get("album") or {}).get("name","")
+            album=(item.get("album") or {}).get("name","") if isinstance(item.get("album"),dict) else (item.get("album") or "")
+            thumbnails=item.get("thumbnails") or []
+            thumb=thumbnails[-1].get("url") if thumbnails and isinstance(thumbnails[-1],dict) else ""
             results.append({
                 "id":"ytm-"+video_id,
                 "videoId":video_id,
@@ -105,9 +132,12 @@ def music_search(q:str, limit:int=20):
                 "artist":artists or "Unknown artist",
                 "album":album,
                 "duration":item.get("duration",""),
+                "thumbnail":thumb,
                 "playUrl":"https://music.youtube.com/watch?v="+quote(video_id)
             })
-        music_cache[query.lower()]=(now,results)
+            if len(results)>=limit:
+                break
+        music_cache[cache_key]=(now,results)
         return {"query":query,"source":"youtube-music","results":results}
     except Exception as e:
         raise HTTPException(502,"YouTube Music search failed: "+str(e))

@@ -35,7 +35,7 @@ list.innerHTML=TELLAPUR_HOSPITALS.map(h=>'<div class="hospitalRow"><div class="h
 }
 
 function showApp(role){$("gate").hidden=true;$("app").hidden=false;S.role=role;$("operatorPanel").hidden=role!=="operator";$("cameraPanel").hidden=role!=="camera";$("operatorNav").hidden=role!=="operator";$("legalNav").hidden=role!=="legal";$("content").classList.toggle("cameraOnlyMode",role==="camera");$("title").textContent=role==="operator"?"Cameras":role==="legal"?"Video Storage":"";setStatus(role.toUpperCase());if(role==="camera"){showView("cameras");initCameraMap()}if(role==="legal"){showView("legal-storage");initGlobalMap();connectGlobalRegistry("legal").catch(e=>console.warn("legal registry",e));refreshLegalStorage()}}
-async const FEATURED_BANGERS=[
+const FEATURED_BANGERS=[
 ["Chammak Challo","Akon, Hamsika Iyer"],["Habibi","Indian/Desi Banger"],["Kala Chashma","Amar Arshi, Badshah, Neha Kakkar"],["Kar Gayi Chull","Badshah, Fazilpuria, Neha Kakkar, Sukriti Kakar"],["Abhi Toh Party Shuru Hui Hai","Yo Yo Honey Singh"],["High Heels Te Nachche","Jaz Dhami, Yo Yo Honey Singh, Aastha Gill"],["Brown Munde","AP Dhillon, Gminxr, Gurinder Gill"],["Insane","AP Dhillon"],["Excuses","AP Dhillon"],["Naah","Harrdy Sandhu"],["Lahore","Guru Randhawa"],["Proper Patola","Diljit Dosanjh, Badshah"],["Born to Shine","Diljit Dosanjh"],["Do You Know","Diljit Dosanjh"],["5 Taara","Diljit Dosanjh"],["Mundian To Bach Ke","Panjabi MC"],["Amplifier","Imran Khan"],["Angreji Beat","Gippy Grewal, Honey Singh"],["Desi Kalakaar","Yo Yo Honey Singh"],["Blue Eyes","Yo Yo Honey Singh"],["Party All Night","Yo Yo Honey Singh"],["Manali Trance","Neha Kakkar, Yo Yo Honey Singh"],["Sunny Sunny","Yo Yo Honey Singh, Neha Kakkar"],["Aankh Marey","Neha Kakkar, Mika Singh, Kumar Sanu"],["The Humma Song","Badshah, Jubin Nautiyal, Shashaa Tirupati"],["Tamma Tamma Again","Bappi Lahiri, Anuradha Paudwal, Badshah"],["Bom Diggy Diggy","Zack Knight, Jasmin Walia"],["Gallan Goodiyaan","Yashita Sharma, Manish Kumar Tipu, Farhan Akhtar"],["Jai Jai Shivshankar","Vishal Dadlani, Benny Dayal"],["Ghungroo","Arijit Singh, Shilpa Rao"],["Jhoome Jo Pathaan","Arijit Singh, Sukriti Kakar, Vishal Dadlani, Shekhar Ravjiani"],["Besharam Rang","Shilpa Rao, Caralisa Monteiro, Vishal Dadlani, Shekhar Ravjiani"],["What Jhumka?","Arijit Singh, Jonita Gandhi"],["Thumkeshwari","Rashmeet Kaur, Dev Negi, Sachin-Jigar"],["Param Sundari","Shreya Ghoshal"],["Kamariya","Darshan Raval"],["O Saki Saki","Neha Kakkar, Tulsi Kumar, B Praak"],["Muqabla","Yash Narvekar, Parampara Tandon"],["Illegal Weapon 2.0","Jasmine Sandlas, Garry Sandhu"],["Naagin","Aastha Gill"],["Jugnu","Badshah, Nikhita Gandhi"],["Nadiyon Paar","Shamur, Rashmeet Kaur, IP Singh, Sachin-Jigar"]
 ];
 function addFeaturedBangers(){
@@ -53,7 +53,7 @@ const q=($("musicSearch")?.value||"").trim();
 if(!q)return;
 window.open("https://www.youtube.com/results?search_query="+encodeURIComponent(q),"cordds-youtube-search","noopener,noreferrer");
 }
-function loadMusicLibrary(){
+async function loadMusicLibrary(){
 if(S.musicLoaded)return;
 const list=$("musicList"),count=$("musicLibraryCount");
 try{

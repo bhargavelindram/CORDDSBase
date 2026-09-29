@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>CORDDSBASE</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-<link rel="stylesheet" href="styles.css?v=20260925-1700">
+<link rel="stylesheet" href="styles.css?v=20260929-ui-v4">
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.22.3/dist/livekit-client.umd.min.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 </head>
@@ -18,7 +18,7 @@
 <section class="card">
 <h1>CORDDSBASE</h1>
 <p>Security camera command interface</p>
-<div class="actions"><button id="operatorBtn">OPERATOR</button><button id="legalBtn" class="legalBtn">LEGAL SIGN IN</button><button id="cameraBtn">CAMERA</button></div>
+<div class="actions"><button id="operatorBtn">OPERATOR</button><button id="legalBtn" class="legalBtn">LEGAL</button><button id="cameraBtn">CAMERA</button></div>
 <div id="legalLogin" class="legalLogin" hidden><input id="legalUser" placeholder="Legal ID" autocomplete="username"><input id="legalPass" type="password" placeholder="Password" autocomplete="current-password"><button id="legalSignIn">SIGN IN</button><div id="legalMsg" class="small">Authorized legal access only.</div></div>
 <p id="gateMsg">Ready.</p>
 </section>
@@ -42,7 +42,7 @@
 <button id="leave" class="danger">LOG OUT</button>
 </aside>
 
-<section class="content">
+<section id="content" class="content">
 <div class="top"><h1 id="title">Cameras</h1><span id="roomState">NO ROOM</span></div>
 
 <section id="view-cameras" class="view">
@@ -62,7 +62,7 @@
 </section>
 
 <section id="view-map" class="view" hidden>
-<div class="panel mapPanel"><div class="mapToolbar"><div><strong>LIVE INCIDENT MAP</strong><span class="small">Cameras + nearby hospitals</span></div><button id="loadHospitals">SHOW HOSPITALS</button></div><div id="map"></div><div class="mapLegend"><span>● ONLINE CAMERA</span><span>✚ HOSPITAL</span><span id="mapHint">Waiting for GPS data…</span></div></div>
+<div class="panel mapPanel"><div class="mapToolbar"><div><strong>LIVE INCIDENT MAP</strong><span class="small">Cameras + nearby hospitals</span></div><div class="mapTools"><input id="mapSearch" placeholder="Search a place…"><button id="mapSearchBtn">SEARCH</button><button id="loadHospitals">SHOW HOSPITALS</button></div></div><div id="map"></div><div class="mapLegend"><span>● ONLINE CAMERA</span><span>✚ HOSPITAL</span><span id="mapHint">Waiting for GPS data…</span></div></div>
 </section>
 
 <section id="view-alerts" class="view" hidden>
@@ -122,6 +122,6 @@
 </section>
 </section>
 </main>
-<script src="app.js?v=20260929-legal-global"></script>
+<script src="app.js?v=20260929-ui-v4"></script>
 </body>
 </html>

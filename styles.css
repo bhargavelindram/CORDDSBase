@@ -256,3 +256,40 @@ aside #leave{margin-top:8px}
 .musicItem .musicText{min-width:0;display:grid;gap:4px}
 .musicItem .musicText b,.musicItem .musicText span{display:block}
 @media(max-width:1000px){.ytmNowCard{min-height:240px}}
+
+/* CORDDSBase secure-access presentation refresh */
+#gate{min-height:calc(100vh - 64px);padding:34px 22px 42px;position:relative;overflow:hidden;background:#020304}
+.gateShell{width:min(1180px,100%);position:relative;z-index:1}
+.gateBackdrop{position:absolute;inset:-20vh -20vw;background:
+ radial-gradient(circle at 50% 28%,rgba(255,23,56,.13),transparent 30%),
+ linear-gradient(120deg,transparent 0 37%,rgba(255,255,255,.025) 37.2%,transparent 37.8% 63%,rgba(255,255,255,.018) 63.2%,transparent 64%);
+ pointer-events:none}
+.gateCard{position:relative;overflow:hidden;background:linear-gradient(180deg,rgba(12,15,19,.97),rgba(4,6,8,.98));border:1px solid #303640;border-radius:18px;box-shadow:0 30px 90px rgba(0,0,0,.65),0 0 60px rgba(255,20,45,.08);padding:14px}
+.gateCard:before{content:"";position:absolute;left:0;right:0;top:0;height:2px;background:linear-gradient(90deg,transparent,#ff1738 20%,#ff596c 50%,#ff1738 80%,transparent)}
+.gateStatus{height:34px;display:flex;align-items:center;gap:10px;color:#9ca4ae;font-size:10px;letter-spacing:2.2px;padding:0 8px;border-bottom:1px solid #222832}
+.gateStatus .statusDot{width:7px;height:7px;border-radius:50%;background:#ff1738;box-shadow:0 0 12px #ff1738}
+.gateVersion{margin-left:auto;color:#ff5668}
+.gateHero{text-align:center;padding:34px 24px 24px}
+.gateLogoExact{display:block;width:min(920px,100%);height:auto;margin:0 auto;filter:drop-shadow(0 15px 35px rgba(0,0,0,.55))}
+.gateRule{height:1px;background:linear-gradient(90deg,transparent,#343b46,transparent);margin:26px auto 18px;max-width:780px}
+.gateHeroTitle{font-size:13px;letter-spacing:5px;font-weight:700;color:#f1f3f5}
+.gateHeroSub{margin-top:9px;color:#7f8791;font-size:10px;letter-spacing:2px}
+.gateAccess{max-width:980px;margin:0 auto;padding:22px 18px 12px;border:1px solid #242a33;background:rgba(3,5,7,.72);border-radius:14px}
+.gateAccessHead{display:flex;justify-content:space-between;align-items:center;color:#737c87;font-size:10px;letter-spacing:2.5px;margin-bottom:14px}
+.gateAccessHead b{color:#fff;font-size:11px}
+.gateRoleGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.roleBtn{position:relative;min-height:92px;text-align:left;display:flex;flex-direction:column;justify-content:center;gap:7px;padding:15px 38px 15px 16px;background:linear-gradient(180deg,#13171d,#0a0d11);border:1px solid #303640;border-radius:10px;transition:.2s ease;overflow:hidden}
+.roleBtn:after{content:"";position:absolute;left:0;bottom:0;width:0;height:2px;background:#ff1738;transition:.2s ease}
+.roleBtn:hover{transform:translateY(-2px);border-color:#ff304a;background:linear-gradient(180deg,#171b21,#0b0e12);box-shadow:0 12px 28px rgba(255,23,56,.10)}
+.roleBtn:hover:after{width:100%}
+.roleBtn strong{font-size:14px;letter-spacing:2px}.roleBtn span{font-size:9px;color:#7e8791;letter-spacing:1.2px}.roleBtn i{position:absolute;right:12px;top:12px;font-style:normal;color:#4b535d;font-size:10px}
+.disabledRole{opacity:.38;cursor:not-allowed}.disabledRole:hover{transform:none;border-color:#303640;box-shadow:none}.disabledRole:after{display:none}
+.creatorCredit{display:flex;justify-content:center;gap:9px;margin:18px 0 6px;font-size:9px;letter-spacing:2px;color:#606974}.creatorCredit b{color:#dce0e4}
+.gateLogin{max-width:560px;margin:16px auto 8px;padding:16px;border:1px solid #3a2227;background:#0d0b0d;border-radius:10px}
+.loginTitle{font-size:10px;letter-spacing:2px;color:#ff5a6b;margin-bottom:8px}
+.loginFields{display:grid;grid-template-columns:1fr 1fr;gap:8px}.loginFields input{margin:0}
+.loginButton{margin-top:9px;width:100%;background:#e31232;border-color:#e31232}
+.gateReady{height:32px;margin-top:10px;padding:0 8px;display:flex;align-items:center;gap:9px;color:#68717c;font-size:9px;letter-spacing:1.8px}
+.gateReady span:last-child{margin-left:auto}.readyLine{width:5px;height:5px;border-radius:50%;background:#35d07f;box-shadow:0 0 10px #35d07f}
+@media(max-width:850px){.gateRoleGrid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:520px){#gate{padding:12px}.gateHero{padding:20px 8px 18px}.gateHeroTitle{font-size:10px;letter-spacing:3px}.gateHeroSub{font-size:8px;line-height:1.6}.gateRoleGrid{grid-template-columns:1fr}.loginFields{grid-template-columns:1fr}.gateStatus{font-size:8px}.gateVersion{display:none}}

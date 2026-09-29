@@ -50,10 +50,12 @@ S.music=base;
 }
 function searchYouTubeMusic(){
 const q=($("musicSearch")?.value||"").trim();
-if(!q)return;
-window.open("https://www.youtube.com/results?search_query="+encodeURIComponent(q),"cordds-youtube-search","noopener,noreferrer");
+if(!q){renderMusic();return}
+renderMusic();
+const list=$("musicList");
+if(list&&!list.children.length)list.innerHTML='<div class="list empty">No matching song in the CORDDSBase library.</div>';
 }
-async function loadMusicLibrary(){
+async async function loadMusicLibrary(){
 if(S.musicLoaded)return;
 const list=$("musicList"),count=$("musicLibraryCount");
 try{
@@ -77,8 +79,15 @@ document.addEventListener("DOMContentLoaded",()=>{const b=$("musicYoutubeSearch"
 function playMusic(id){
 const x=S.music.find(t=>t.id===id);if(!x)return;
 const src=youtubeEmbed(x.playUrl),frame=$("musicPlayer"),now=$("musicNow");
-if(!src){window.open(x.playUrl||("https://www.youtube.com/results?search_query="+encodeURIComponent(x.title+" "+(x.artist||""))),"cordds-youtube","noopener,noreferrer");if(now)now.textContent=x.title+" · opening YouTube search";return;}
-frame.src=src;if(now)now.textContent=x.title+" · "+x.artist;
+if(!frame)return;
+if(src){
+frame.src=src;
+if(now)now.textContent=x.title+" · "+x.artist;
+}else{
+frame.removeAttribute("src");
+frame.srcdoc='<html><body style="margin:0;background:#050608;color:#8b949e;font-family:Arial,sans-serif;display:grid;place-items:center;text-align:center"><div><b style="color:#fff;font-size:18px">SONG SELECTED</b><div style="margin-top:8px">'+escapeHtml(x.title)+'</div><div style="margin-top:5px;font-size:12px">No embedded video is linked for this track yet.</div></div></body></html>';
+if(now)now.textContent=x.title+" · "+x.artist;
+}
 }
 function showView(view){document.querySelectorAll(".view").forEach(v=>v.hidden=v.id!=="view-"+view);document.querySelectorAll(".nav").forEach(b=>b.classList.toggle("active",b.dataset.view===view));const names={cameras:"Cameras",map:"Live Map",alerts:"Alerts",storage:"Video Storage",ai:"YOLO11 Detection",music:"Music",settings:"Settings","legal-storage":"Video Storage","global-map":"Global Camera Map"};$("title").textContent=names[view];if(view==="map"&&S.map){setTimeout(()=>{S.map.invalidateSize();loadHospitals()},50)}if(view==="global-map"&&S.globalMap)setTimeout(()=>S.globalMap.invalidateSize(),50);if(view==="music")loadMusicLibrary();if(view==="legal-storage")refreshLegalStorage();if(view==="storage")refreshStorage()}
 function initMap(){if(S.map||!window.L)return;S.map=L.map("map").setView([17.3850,78.4867],11);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(S.map)}async function loadHospitals(){if(!S.map||!window.L)return;const center=S.map.getCenter();const radius=18000;const q='[out:json][timeout:20];(node["amenity"="hospital"](around:'+radius+','+center.lat+','+center.lng+');way["amenity"="hospital"](around:'+radius+','+center.lat+','+center.lng+'););out center tags;';const btn=$("loadHospitals");if(btn)btn.disabled=true;try{const r=await fetch("https://overpass-api.de/api/interpreter?data="+encodeURIComponent(q));if(!r.ok)throw Error("Hospital map "+r.status);const d=await r.json();if(S.hospitalLayer)S.hospitalLayer.clearLayers();S.hospitalLayer=L.layerGroup().addTo(S.map);let n=0;for(const x of d.elements||[]){const lat=x.lat??x.center?.lat,lon=x.lon??x.center?.lon;if(!Number.isFinite(lat)||!Number.isFinite(lon)||n>=100)continue;const name=x.tags?.name||"Hospital";const icon=L.divIcon({className:"hospitalPlusIcon",html:"<span>+</span>",iconSize:[26,26],iconAnchor:[13,13]});const m=L.marker([lat,lon],{icon});m.bindPopup("<b>"+escapeHtml(name)+"</b><br><span style='color:#ff1738'>✚ Hospital</span>");m.addTo(S.hospitalLayer);n++}$("mapHint").textContent=n+" hospital locations loaded";}catch(e){$("mapHint").textContent="Hospital data unavailable right now";console.warn(e)}finally{if(btn)btn.disabled=false}}

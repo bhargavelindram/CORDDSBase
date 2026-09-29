@@ -66,3 +66,28 @@ button{transition:transform .15s ease,box-shadow .15s ease,border-color .15s eas
 
 .cameraOnlyPanel{position:fixed!important;inset:0!important;z-index:50!important;margin:0!important;padding:0!important;border:0!important;border-radius:0!important;background:#05070a!important;display:flex;flex-direction:column}.cameraRoomBar{height:64px;min-height:64px;display:flex;align-items:center;gap:12px;padding:0 18px;background:#0a0d12;border-bottom:1px solid #252b34;box-sizing:border-box}.cameraBrand{font-weight:900;letter-spacing:1.5px;font-size:13px}.cameraRoomBar input{width:180px}.cameraRoomBar button{white-space:nowrap}.cameraRoomBar #cameraMsg{margin:0;color:#9ba5b2;font-size:11px;font-weight:800;letter-spacing:.6px}.cameraSplit{display:grid;grid-template-columns:1fr 1fr;flex:1;min-height:0}.cameraFeed,.cameraLocation{position:relative;min-width:0;min-height:0;overflow:hidden}.cameraFeed{background:#000;border-right:1px solid #252b34}.cameraFeed video{width:100%;height:100%;object-fit:cover;display:block}.cameraFeedBadge{position:absolute;top:16px;left:16px;background:#e51d3f;color:white;padding:7px 10px;border-radius:7px;font-size:10px;font-weight:900;letter-spacing:1px;box-shadow:0 0 22px rgba(229,29,63,.55)}.cameraLocation{background:#111}.cameraLocationHead{position:absolute;z-index:3;top:14px;left:14px;right:14px;display:flex;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:9px;background:rgba(5,7,10,.88);backdrop-filter:blur(8px);font-size:10px;letter-spacing:1px}.cameraLocationHead span{color:#58e68a}#cameraMap{width:100%;height:100%}.cameraOnlyMode aside,.cameraOnlyMode .top{display:none!important}.cameraOnlyMode .content{margin:0!important;padding:0!important;width:100%!important;max-width:none!important}.cameraOnlyMode .view{padding:0!important;margin:0!important}.cameraOnlyMode #view-cameras{display:block!important}.cameraOnlyMode header{display:none!important}
 @media(max-width:700px){.cameraRoomBar{height:auto;min-height:64px;flex-wrap:wrap;padding:10px}.cameraRoomBar input{flex:1;min-width:120px}.cameraSplit{grid-template-columns:1fr;grid-template-rows:1fr 1fr}.cameraFeed{border-right:0;border-bottom:1px solid #252b34}.cameraRoomBar .cameraBrand{width:100%}}
+
+/* CORDDSBASE UI refresh */
+:root{--red:#ff1738;--red-dark:#a9001c;--surface:#0c1015;--surface2:#11161d;--line:#252c35;--muted:#89929e}
+body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#05070a;color:#f4f6f8}
+#gate{min-height:100vh;background:radial-gradient(circle at 50% 20%,rgba(255,23,56,.10),transparent 38%)}
+#gate .card{width:min(620px,calc(100vw - 32px));padding:38px;background:rgba(12,16,21,.94);border:1px solid #303844;border-radius:20px;box-shadow:0 30px 100px rgba(0,0,0,.55)}
+#gate .card h1{font-size:42px;letter-spacing:-2px;margin-bottom:6px}
+#gate .card>p{color:#8f99a6}
+.actions button{min-height:48px}
+.legalBtn{color:#fff!important;border-color:#424b57!important}
+#app{background:#07090d}
+aside{background:#090c11;border-right:1px solid #202630}
+aside h2{color:#fff;font-size:14px}
+.content{padding:30px 34px}
+.top{padding-bottom:12px}.top h1{font-size:34px;margin-bottom:0}
+.panel{border-radius:14px;background:#0c1015;border:1px solid #252c35;box-shadow:0 14px 45px rgba(0,0,0,.22)}
+.mapToolbar{padding:8px 6px 14px}.mapTools{display:flex;align-items:center;gap:8px}.mapTools input{width:260px;margin:0;height:40px}.mapTools button{height:40px;padding:0 13px}
+.hospitalPlusIcon{background:transparent!important;border:0!important}.hospitalPlusIcon span{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:#ff1738;color:#fff;font-size:24px;line-height:24px;font-weight:1000;border:2px solid #fff;box-shadow:0 0 0 3px rgba(255,23,56,.25),0 0 18px rgba(255,23,56,.55)}
+#map{height:calc(100vh - 245px);min-height:560px}
+.cameraGrid{grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:20px}.cam{background:#080b0f;border-radius:14px;border-color:#2a323d}.camVideoWrap{background:#000}.cam .meta{font-size:14px}.camTools{padding-bottom:15px}
+.emergencyBanner{border-radius:14px}.replayCard{border-radius:16px}
+.replayCard video{min-height:300px}
+.cameraOnlyMode .content{padding:0!important}
+@media(max-width:1000px){.mapTools{flex-wrap:wrap}.mapTools input{width:220px}.cameraGrid{grid-template-columns:1fr}}
+@media(max-width:700px){.content{padding:16px}.mapTools{width:100%}.mapTools input{flex:1;width:auto}.cameraSplit{grid-template-columns:1fr 1fr;grid-template-rows:none}.cameraRoomBar{flex-wrap:nowrap}.cameraBrand{white-space:nowrap}.cameraRoomBar input{width:150px;min-width:100px}}

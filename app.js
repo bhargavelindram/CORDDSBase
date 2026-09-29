@@ -48,14 +48,8 @@ existing.add(title.toLowerCase());
 }
 S.music=base;
 }
-function searchYouTubeMusic(){
-const q=($("musicSearch")?.value||"").trim();
-if(!q){renderMusic();return}
-renderMusic();
-const list=$("musicList");
-if(list&&!list.children.length)list.innerHTML='<div class="list empty">No matching song in the CORDDSBase library.</div>';
-}
-async async function loadMusicLibrary(){
+function searchYouTubeMusic(){renderMusic()}
+async async async function loadMusicLibrary(){
 if(S.musicLoaded)return;
 const list=$("musicList"),count=$("musicLibraryCount");
 try{
@@ -75,7 +69,7 @@ const rows=S.music.filter(x=>(!q||((x.title+" "+x.artist).toLowerCase().includes
 el.innerHTML=rows.slice(0,120).map(x=>'<div class="musicItem"><div><b>'+escapeHtml(x.title)+'</b><span>'+escapeHtml(x.artist||"Unknown artist")+'</span></div><div class="musicActions"><small>'+("★ "+Number(x.rating||0).toFixed(2))+'</small><button data-play-music="'+x.id+'">PLAY</button></div></div>').join("")||'<div class="list empty">No songs match this filter.</div>';
 el.querySelectorAll("[data-play-music]").forEach(b=>b.onclick=()=>playMusic(Number(b.dataset.playMusic)));
 }
-document.addEventListener("DOMContentLoaded",()=>{const b=$("musicYoutubeSearch"),q=$("musicSearch");if(b)b.onclick=searchYouTubeMusic;if(q)q.addEventListener("keydown",e=>{if(e.key==="Enter")searchYouTubeMusic()});});
+document.addEventListener("DOMContentLoaded",()=>{const q=$("musicSearch");if(q)q.addEventListener("keydown",e=>{if(e.key==="Enter")renderMusic()});});
 function playMusic(id){
 const x=S.music.find(t=>t.id===id);if(!x)return;
 const src=youtubeEmbed(x.playUrl),frame=$("musicPlayer"),now=$("musicNow");

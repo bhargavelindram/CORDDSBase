@@ -113,7 +113,10 @@ for(const base of MUSIC_API_BASES){
 try{
 const controller=new AbortController();
 const timer=setTimeout(()=>controller.abort(),15000);
-const requestUrl=base+"/music/search?q="+encodeURIComponent(q)+"&limit=100";\nconst fetchOptions={cache:"no-store",signal:controller.signal,mode:"cors"};\nif(location.protocol==="https:" && /^(http:\/\/)(127\\.0\\.0\\.1|localhost)(:\\d+)?$/i.test(base))fetchOptions.targetAddressSpace="loopback";\nconst r=await fetch(requestUrl,fetchOptions);
+const requestUrl=base+"/music/search?q="+encodeURIComponent(q)+"&limit=100";
+const fetchOptions={cache:"no-store",signal:controller.signal,mode:"cors"};
+if(location.protocol==="https:" && /^(http:\/\/)(127\\.0\\.0\\.1|localhost)(:\\d+)?$/i.test(base))fetchOptions.targetAddressSpace="loopback";
+const r=await fetch(requestUrl,fetchOptions);
 clearTimeout(timer);
 if(!r.ok)throw Error("HTTP "+r.status);
 data=await r.json();

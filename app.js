@@ -64,17 +64,31 @@ function acknowledgeCollision(id){
 const x=S.collisions.get(id);if(!x)return;
 x.status="ACKNOWLEDGED";renderCollisionControl();
 }
+function ignoreCollision(id){
+const x=S.collisions.get(id);if(!x)return;
+x.status="IGNORED";renderCollisionControl();
+}
 function clearCollision(id){
 S.collisions.delete(id);renderCollisionControl();
 }
 function renderCollisionControl(){
-const el=$("collisionOps");if(!el)return;
-const active=[...S.collisions.values()].filter(x=>x.status!=="CLEARED");
-if(!active.length){el.className="collisionOps empty";el.textContent="No active collision incidents.";return}
+const activeEl=$("collisionOps"),ackEl=$("acknowledgedOps"),ignoreEl=$("ignoredOps");
+const all=[...S.collisions.values()];
+function render(el,items,type){
+if(!el)return;
+if(!items.length){el.className="collisionOps empty";el.textContent="No "+type.toLowerCase()+" incidents.";return}
 el.className="collisionOps";
-el.innerHTML=active.map(x=>'<div class="collisionIncident"><div><strong>VEHICLE COLLISION</strong><div class="small">'+escapeHtml(x.camera)+' · '+Math.round(x.score*100)+'% · '+new Date(x.time).toLocaleTimeString()+'</div><div class="small">Status: '+escapeHtml(x.status)+'</div></div><div class="recordActions"><button data-ack="'+escapeHtml(x.id)+'">'+(x.status==="ACKNOWLEDGED"?"ACKNOWLEDGED":"ACKNOWLEDGE")+'</button><button class="dangerBtn" data-clear="'+escapeHtml(x.id)+'">CLEAR</button></div></div>').join("");
+el.innerHTML=items.map(x=>{
+const action=type==="ACTIVE"?'<button data-ack="'+escapeHtml(x.id)+'">ACKNOWLEDGE</button><button class="dangerBtn" data-ignore="'+escapeHtml(x.id)+'">IGNORE</button>':type==="ACKNOWLEDGED"?'<button data-replay="'+escapeHtml(x.id)+'">OPEN REPLAY</button><button class="dangerBtn" data-clear="'+escapeHtml(x.id)+'">CLEAR</button>':'<button data-replay="'+escapeHtml(x.id)+'">OPEN REPLAY</button><button class="dangerBtn" data-clear="'+escapeHtml(x.id)+'">CLEAR</button>';
+return '<div class="collisionIncident"><div><strong>VEHICLE COLLISION</strong><div class="small">'+escapeHtml(x.camera)+' · '+Math.round(x.score*100)+'% · '+new Date(x.time).toLocaleTimeString()+'</div><div class="small">Status: '+escapeHtml(x.status)+'</div></div><div class="recordActions">'+action+'</div></div>'}).join("");
 el.querySelectorAll("[data-ack]").forEach(b=>b.onclick=()=>acknowledgeCollision(b.dataset.ack));
+el.querySelectorAll("[data-ignore]").forEach(b=>b.onclick=()=>ignoreCollision(b.dataset.ignore));
 el.querySelectorAll("[data-clear]").forEach(b=>b.onclick=()=>clearCollision(b.dataset.clear));
+el.querySelectorAll("[data-replay]").forEach(b=>b.onclick=()=>{const x=S.collisions.get(b.dataset.replay);if(x)openAlertReplay({camera:x.camera,score:x.score,time:x.time})});
+}
+render(activeEl,all.filter(x=>x.status==="ACTIVE"),"ACTIVE");
+render(ackEl,all.filter(x=>x.status==="ACKNOWLEDGED"),"ACKNOWLEDGED");
+render(ignoreEl,all.filter(x=>x.status==="IGNORED"),"IGNORED");
 }
 function renderAlerts(){renderCollisionControl();const el=$("alertsList");if(!S.alerts.length){el.className="list empty";el.textContent="No detection alerts yet.";return}el.className="list";el.innerHTML=S.alerts.map((a,i)=>'<button class="alertItem alertClickable" data-alert="'+i+'"><div><strong>⚠ VEHICLE COLLISION</strong><div class="small">'+escapeHtml(a.camera)+' · '+Math.round(a.score*100)+'% confidence</div></div><span class="small">'+new Date(a.time).toLocaleTimeString()+' · REPLAY ›</span></button>').join("");el.querySelectorAll("[data-alert]").forEach(b=>b.onclick=()=>openAlertReplay(S.alerts[Number(b.dataset.alert)]))}
 function openAlertReplay(alert){const incident=[...S.collisions.values()].find(x=>x.time===alert.time&&x.camera===alert.camera);const modal=$("replayModal"),video=$("replayVideo"),meta=$("replayMeta");if(!modal)return;meta.textContent=alert.camera+" · "+Math.round(alert.score*100)+"% confidence · "+new Date(alert.time).toLocaleString();if(incident?.replay?.blob&&incident.replay.blob.size>1000){if(video.dataset.objectUrl)URL.revokeObjectURL(video.dataset.objectUrl);const u=URL.createObjectURL(incident.replay.blob);video.dataset.objectUrl=u;video.src=u;video.load();video.onloadedmetadata=()=>{try{video.currentTime=Math.min(Math.max(0,incident.replay.offset||0),Math.max(0,video.duration-1))}catch(e){}};video.oncanplay=()=>{video.play().catch(()=>{})};$("replayEmpty").hidden=true;video.hidden=false}else{video.removeAttribute("src");video.hidden=true;$("replayEmpty").hidden=false}modal.hidden=false}

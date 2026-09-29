@@ -35,7 +35,7 @@ list.innerHTML=TELLAPUR_HOSPITALS.map(h=>'<div class="hospitalRow"><div class="h
 }
 
 function showApp(role){$("gate").hidden=true;$("app").hidden=false;S.role=role;$("operatorPanel").hidden=role!=="operator";$("cameraPanel").hidden=role!=="camera";$("operatorNav").hidden=role!=="operator";$("legalNav").hidden=role!=="legal";$("content").classList.toggle("cameraOnlyMode",role==="camera");$("title").textContent=role==="operator"?"Cameras":role==="legal"?"Video Storage":"";setStatus(role.toUpperCase());if(role==="camera"){showView("cameras");initCameraMap()}if(role==="legal"){showView("legal-storage");initGlobalMap();connectGlobalRegistry("legal").catch(e=>console.warn("legal registry",e));refreshLegalStorage()}}
-const MUSIC_API_BASES=["http://127.0.0.1:8000","http://localhost:8000"];
+const MUSIC_API_BASES=["http://127.0.0.1:8000","http://localhost:8000"];\nfunction musicBackendStatus(message){const n=$("musicNow");if(n)n.textContent=message;const c=$("musicLibraryCount");if(c)c.textContent=message}
 function loadYouTubePlayerApi(){
 return new Promise((resolve,reject)=>{
 if(window.YT?.Player){resolve();return}
@@ -70,7 +70,7 @@ await loadYouTubePlayerApi();
 if(S.musicPlayerApi)return S.musicPlayerApi;
 S.musicPlayerApi=new YT.Player("musicPlayer",{
 width:"320",height:"200",
-playerVars:{autoplay:0,controls:0,playsinline:1,rel:0,iv_load_policy:3,disablekb:1},
+playerVars:{autoplay:0,controls:0,playsinline:1,rel:0,iv_load_policy:3,disablekb:1,origin:location.origin},
 events:{
 onReady:()=>{setMusicPlaying(false)},
 onStateChange:e=>{
@@ -78,7 +78,7 @@ if(e.data===1)setMusicPlaying(true);
 else if(e.data===2)setMusicPlaying(false);
 else if(e.data===0){nextMusic()}
 },
-onError:e=>{
+onAutoplayBlocked:()=>{const n=$("musicNow");if(n)n.textContent="AUTOPLAY BLOCKED · PRESS PLAY";setMusicPlaying(false)},\nonError:e=>{
 console.warn("YouTube embed error",e.data);
 const i=S.musicQueue.findIndex(t=>String(t.id)===String(S.musicCurrentId));
 if((e.data===101||e.data===150||e.data===100||e.data===5)&&i>=0&&S.musicQueue.length>1){
@@ -115,7 +115,7 @@ const controller=new AbortController();
 const timer=setTimeout(()=>controller.abort(),15000);
 const requestUrl=base+"/music/search?q="+encodeURIComponent(q)+"&limit=100";
 const fetchOptions={cache:"no-store",signal:controller.signal,mode:"cors"};
-if(location.protocol==="https:" && /^(http:\/\/)(127\\.0\\.0\\.1|localhost)(:\\d+)?$/i.test(base))fetchOptions.targetAddressSpace="loopback";
+if(location.protocol==="https:" && /^(http:\/\/)(127\.0\.0\.1|localhost)(:\d+)?$/i.test(base))fetchOptions.targetAddressSpace="loopback";
 const r=await fetch(requestUrl,fetchOptions);
 clearTimeout(timer);
 if(!r.ok)throw Error("HTTP "+r.status);
@@ -123,7 +123,7 @@ data=await r.json();
 break;
 }catch(err){lastError=err}
 }
-if(!data)throw lastError||Error("Music search service unavailable");
+if(!data){const detail=lastError?.name==="AbortError"?"BACKEND TIMEOUT · START LOCAL MUSIC SERVER":(lastError?.message||"BACKEND CONNECTION FAILED");musicBackendStatus(detail);throw lastError||Error("Music search service unavailable")}
 S.musicSearchResults=(data.results||[]).map(x=>({...x,source:"youtube-music"}));
 S.musicSearchQuery=q;
 S.musicQueue=S.musicSearchResults.slice();

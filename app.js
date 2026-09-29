@@ -99,54 +99,20 @@ return (S.music||[]).filter(x=>((x.title||"")+" "+(x.artist||"")).toLowerCase().
 }
 async function searchYouTubeMusic(){
 const q=($("musicSearch")?.value||"").trim();
-const list=$("musicList"),btn=$("musicSearchBtn"),count=$("musicLibraryCount");
+const list=$("musicList"),count=$("musicLibraryCount");
 if(!q){
-S.musicSearchResults=[];S.musicSearchQuery="";S.musicQueue=[];
 if(list)list.innerHTML='<div class="list empty">SEARCH FOR A SONG OR ARTIST.</div>';
 if(count)count.textContent="SEARCH REQUIRED";
 return;
 }
-if(btn){btn.disabled=true;btn.textContent="SEARCHING…";}
-if(list)list.innerHTML='<div class="list empty">SEARCHING YOUTUBE MUSIC…</div>';
-try{
-let d=null,lastError=null;
-for(const base of MUSIC_API_BASES){
-  try{
-    const controller=new AbortController();
-    const timer=setTimeout(()=>controller.abort(),8000);
-    const r=await fetch(base+"/music/search?q="+encodeURIComponent(q)+"&limit=25",{cache:"no-store",signal:controller.signal});
-    clearTimeout(timer);
-    if(!r.ok)throw Error("HTTP "+r.status);
-    d=await r.json();
-    break;
-  }catch(err){lastError=err}
-}
-if(!d)throw lastError||Error("Local music backend unavailable");
-S.musicSearchResults=(d.results||[]).map(x=>({...x,source:"youtube-music"}));
-S.musicSearchQuery=q;
-S.musicQueue=S.musicSearchResults.slice();
-renderMusic();
-if(count)count.textContent=S.musicSearchResults.length+" YOUTUBE MUSIC SONGS";
-if(!S.musicSearchResults.length){
-  const local=localMusicMatches(q);
-  S.musicSearchResults=local;
-  S.musicQueue=local.slice();
-  renderMusic();
-  if(count)count.textContent=local.length?local.length+" CORDDSBASE FALLBACK SONGS":"0 RESULTS";
-  if(list&&!local.length)list.innerHTML='<div class="list empty">NO YOUTUBE MUSIC SONGS FOUND.</div>';
-}
-}catch(e){
 const local=localMusicMatches(q);
-S.musicSearchResults=local;
 S.musicSearchQuery=q;
+S.musicSearchResults=local;
 S.musicQueue=local.slice();
 renderMusic();
-if(count)count.textContent=local.length?local.length+" LOCAL FALLBACK SONGS":"MUSIC BACKEND OFFLINE";
-if(list&&!local.length)list.innerHTML='<div class="list empty">START THE CORDDSBASE BACKEND, THEN SEARCH AGAIN.</div>';
-console.warn("YouTube Music search",e);
-}finally{
-if(btn){btn.disabled=false;btn.textContent="SEARCH";}
-}
+if(count)count.textContent=local.length+" LOCAL MATCHES · YOUTUBE MUSIC AVAILABLE";
+window.open("https://music.youtube.com/search?q="+encodeURIComponent(q),"_blank","noopener,noreferrer");
+if(list&&!local.length)list.innerHTML='<div class="list empty">YOUTUBE MUSIC SEARCH OPENED — SELECT A SONG THERE.</div>';
 }
 async function loadMusicLibrary(){
 if(S.musicLoaded)return;
@@ -480,13 +446,8 @@ $("musicPrev")?.addEventListener("click",previousMusic);
 $("musicMainPlayPause")?.addEventListener("click",toggleMusicPlay);
 $("musicMainNext")?.addEventListener("click",nextMusic);
 $("musicMainPrev")?.addEventListener("click",previousMusic);
-$("miniMusicSearchBtn")?.addEventListener("click",()=>{
-const q=($("miniMusicSearch")?.value||"").trim();
-if(q)window.open("https://music.youtube.com/search?q="+encodeURIComponent(q),"_blank","noopener,noreferrer");
-});
-$("miniMusicSearch")?.addEventListener("keydown",e=>{
-if(e.key==="Enter")$("miniMusicSearchBtn")?.click();
-});
+
+
 
 $("soundToggle").onclick=()=>{S.soundOn=!S.soundOn;$("soundToggle").textContent=S.soundOn?"ATTENTION AUDIO: ON":"ATTENTION AUDIO: OFF";if(S.soundOn)startAttentionAudio();else stopAttentionAudio()};
 $("emergencyReplay").onclick=()=>{const x=[...S.collisions.values()].find(x=>x.time===Number($("emergencyBanner").dataset.time));if(x)openAlertReplay({camera:x.camera,score:x.score,time:x.time})};

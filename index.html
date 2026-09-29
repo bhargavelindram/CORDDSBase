@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>CORDDSBase</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-<link rel="stylesheet" href="styles.css?v=20260929-1254">
+<link rel="stylesheet" href="styles.css?v=20260929-front2">
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.22.3/dist/livekit-client.umd.min.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 </head>
@@ -16,41 +16,38 @@
 
 <main id="gate">
 <section class="gateShell">
-  <div class="gateGlow"></div>
+  <div class="gateBackdrop"></div>
   <div class="gateCard">
-    <div class="gateTopline"><span class="statusDot"></span> CORDDSBASE SECURE ACCESS <span class="gateVersion">SYSTEM READY</span></div>
-    <div class="gateBrand">
-      <img class="gateLogo" src="assets/corddsbase-logo.svg" alt="CORDDSBase">
+    <div class="gateStatus"><span class="statusDot"></span><span>CORDDSBASE // SECURE ACCESS</span><span class="gateVersion">PROTOTYPE BUILD</span></div>
+    <div class="gateHero">
+      <img class="gateLogoExact" src="assets/corddsbase-logo.svg" alt="Connected On-Road Disaster Detection System">
+      <div class="gateRule"></div>
+      <div class="gateHeroTitle">SECURITY CAMERA COMMAND INTERFACE</div>
+      <div class="gateHeroSub">CONNECTED CAMERA NETWORK · INCIDENT MONITORING · VIDEO EVIDENCE</div>
     </div>
-    <div class="gateHeading">
-      <div class="gateEyebrow">CONNECTED ON-ROAD DISASTER DETECTION SYSTEM</div>
-      <h1>CORDDSBase</h1>
-      <p>SECURITY CAMERA COMMAND INTERFACE</p>
+    <div class="gateAccess">
+      <div class="gateAccessHead"><span>ACCESS TERMINAL</span><b>SELECT ROLE</b></div>
+      <div class="gateRoleGrid">
+        <button id="operatorBtn" class="roleBtn"><strong>OPERATOR</strong><span>COMMAND & MONITOR</span><i>01</i></button>
+        <button id="legalBtn" class="roleBtn"><strong>LEGAL</strong><span>VIDEO & EVIDENCE</span><i>02</i></button>
+        <button id="cameraBtn" class="roleBtn"><strong>CAMERA</strong><span>FIELD CAMERA</span><i>03</i></button>
+        <button id="governmentBtn" class="roleBtn disabledRole" disabled><strong>GOVERNMENT</strong><span>ACCESS DISABLED</span><i>04</i></button>
+      </div>
+      <div class="creatorCredit"><span>CREATED BY</span><b>BHARGAV ELINDRAM</b></div>
+      <div id="operatorLogin" class="gateLogin" hidden>
+        <div class="loginTitle">OPERATOR SIGN IN</div>
+        <div class="loginFields"><input id="operatorUser" placeholder="Operator Username" autocomplete="username"><input id="operatorPass" type="password" placeholder="Operator Password" autocomplete="current-password"></div>
+        <button id="operatorSignIn" class="loginButton">AUTHENTICATE</button>
+        <div id="operatorMsg" class="small">Operator credentials required.</div>
+      </div>
+      <div id="legalLogin" class="gateLogin" hidden>
+        <div class="loginTitle">LEGAL SIGN IN</div>
+        <div class="loginFields"><input id="legalUser" placeholder="Legal ID" autocomplete="username"><input id="legalPass" type="password" placeholder="Password" autocomplete="current-password"></div>
+        <button id="legalSignIn" class="loginButton">AUTHENTICATE</button>
+        <div id="legalMsg" class="small">Authorized legal access only.</div>
+      </div>
     </div>
-    <div class="gateDivider"></div>
-    <div class="roleLabel">SELECT ACCESS ROLE</div>
-    <div class="actions gateActions">
-      <button id="operatorBtn" class="roleBtn"><span>OPERATOR</span><small>COMMAND & MONITOR</small></button>
-      <button id="legalBtn" class="roleBtn legalBtn"><span>LEGAL</span><small>VIDEO & EVIDENCE</small></button>
-      <button id="cameraBtn" class="roleBtn"><span>CAMERA</span><small>FIELD CAMERA</small></button>
-      <button id="governmentBtn" class="roleBtn secondaryBtn" disabled><span>GOVERNMENT</span><small>DISABLED</small></button>
-    </div>
-    <div class="creatorCredit"><span>CREATED BY</span> <b>BHARGAV ELINDRAM</b></div>
-    <div id="operatorLogin" class="gateLogin" hidden>
-      <div class="loginTitle">OPERATOR SIGN IN</div>
-      <input id="operatorUser" placeholder="Operator Username" autocomplete="username">
-      <input id="operatorPass" type="password" placeholder="Operator Password" autocomplete="current-password">
-      <button id="operatorSignIn" class="loginButton">SIGN IN</button>
-      <div id="operatorMsg" class="small">Operator credentials required.</div>
-    </div>
-    <div id="legalLogin" class="gateLogin" hidden>
-      <div class="loginTitle">LEGAL SIGN IN</div>
-      <input id="legalUser" placeholder="Legal ID" autocomplete="username">
-      <input id="legalPass" type="password" placeholder="Password" autocomplete="current-password">
-      <button id="legalSignIn" class="loginButton">SIGN IN</button>
-      <div id="legalMsg" class="small">Authorized legal access only.</div>
-    </div>
-    <div id="gateMsg" class="gateReady"><span class="readyLine"></span> READY FOR ROLE SELECTION</div>
+    <div id="gateMsg" class="gateReady"><span class="readyLine"></span><span>READY FOR ROLE SELECTION</span><span>CORDDSBASE</span></div>
   </div>
 </section>
 </main>
@@ -181,6 +178,6 @@
 </section>
 </section>
 </main>
-<script src="app.js?v=20260929-ytmusic3"></script>
+<script src="app.js?v=20260929-front2"></script>
 </body>
 </html>

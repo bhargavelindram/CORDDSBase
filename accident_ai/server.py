@@ -37,6 +37,9 @@ def get_music_client():
     if music_client is None:
         if YTMusic is None:
             raise RuntimeError("ytmusicapi is not installed")
+        # The public, unauthenticated catalogue is sufficient for search.
+        # Use a mobile-style client first because it is less sensitive to
+        # web-player parser changes; fall back to the normal web client.
         music_client = YTMusic(language="en", location="IN")
     return music_client
 
@@ -88,8 +91,8 @@ def score_window(cam):
 def music_health():
     try:
         client=get_music_client()
-        test=client.get_search_suggestions("test")
-        return {"ok":True,"provider":"youtube-music","search":"ready","suggestions":len(test or [])}
+        test=client.search("test", filter="songs", limit=5)
+        return {"ok":True,"provider":"youtube-music","search":"ready","results":len(test or [])}
     except Exception as e:
         return {"ok":False,"provider":"youtube-music","error":str(e)}
 

@@ -20,7 +20,13 @@ FRAME_SIZE=int(os.getenv("YOLO_SIZE","1280"))
 WINDOW_FRAMES=40
 INPUT_FPS=8
 ALERT_COOLDOWN=6.0
-model=YOLO(MODEL_PATH)
+model=None
+
+def get_model():
+    global model
+    if model is None:
+        model=YOLO(MODEL_PATH)
+    return model
 history:Dict[str,deque]=defaultdict(lambda:deque(maxlen=WINDOW_FRAMES))
 last_alert:Dict[str,float]={}
 music_client = YTMusic() if YTMusic else None
@@ -118,7 +124,7 @@ def frame(f:Frame):
         if image is None:raise ValueError("invalid JPEG")
     except Exception as e:
         raise HTTPException(400,"Invalid frame: "+str(e))
-    result=model.track(image,persist=True,tracker="botsort.yaml",classes=[2,3,5,7],conf=0.20,imgsz=FRAME_SIZE,verbose=False)[0]
+    result=get_model().track(image,persist=True,tracker="botsort.yaml",classes=[2,3,5,7],conf=0.20,imgsz=FRAME_SIZE,verbose=False)[0]
     tracks=[]
     if result.boxes is not None:
         ids=result.boxes.id

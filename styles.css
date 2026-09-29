@@ -137,3 +137,30 @@ aside #leave:hover{background:#241015;border-color:#7a2b38}
 .hospitalStatus.pending{color:#e5b94d}.hospitalStatus.accepted{color:#52df91}.hospitalStatus.declined{color:#ff6578}
 .fireBtn{color:#ff9b6b!important;border-color:#693d2b!important}
 @media(max-width:800px){.incidentAckGrid{grid-template-columns:1fr}.cameraRoomBar #cameraLogout{margin-left:0}}
+
+/* CORDDSBase BRAND + MUSIC */
+.headerLogo{width:170px;height:42px;object-fit:contain;object-position:center;border-radius:7px;mix-blend-mode:screen;filter:drop-shadow(0 0 12px rgba(255,23,56,.16))}
+.headerWordmark{display:none}
+#gate .gateLogo{display:block;width:100%;height:auto;max-height:180px;object-fit:cover;object-position:center;margin:0 0 18px;border-radius:12px;mix-blend-mode:screen;filter:drop-shadow(0 0 25px rgba(255,23,56,.12))}
+#gate .card{background:radial-gradient(circle at 50% 0%,rgba(255,23,56,.08),transparent 40%),linear-gradient(180deg,#0d1015,#07090c)}
+.musicPanel{min-height:calc(100vh - 145px)}
+.musicCountBadge{font-size:10px;letter-spacing:1.5px;font-weight:900;color:#ff6578;border:1px solid #5b2730;border-radius:999px;padding:8px 11px;background:#140a0d}
+.musicLayout{display:grid;grid-template-columns:minmax(360px,.9fr) minmax(420px,1.1fr);gap:18px;margin-top:18px}
+.musicPlayerWrap{position:sticky;top:85px;align-self:start;border:1px solid #2a313b;border-radius:14px;background:#07090c;overflow:hidden}
+.musicNow{padding:13px 15px;border-bottom:1px solid #252c35;color:#ff6578;font-size:11px;font-weight:900;letter-spacing:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#musicPlayer{display:block;width:100%;aspect-ratio:16/9;border:0;background:#000}
+.musicLibrary{min-width:0}
+.musicTools{display:grid;grid-template-columns:1fr 170px;gap:9px;margin-bottom:10px}
+.musicTools input,.musicTools select{margin:0;height:42px}
+.musicList{display:grid;gap:7px;max-height:calc(100vh - 260px);overflow:auto;padding-right:3px}
+.musicItem{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 12px;border:1px solid #252c35;border-radius:10px;background:#090c10}
+.musicItem:hover{border-color:#444d59;background:#0d1117}
+.musicItem>div:first-child{min-width:0;display:grid;gap:4px}
+.musicItem b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.musicItem span{font-size:11px;color:#89929e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.musicActions{display:flex;align-items:center;gap:9px;flex:none}
+.musicActions small{color:#737d89;font-size:9px}
+.musicActions button{padding:8px 11px;font-size:10px;background:#171c23;border-color:#353e49}
+.musicActions button:hover{background:#ff1738;border-color:#ff1738}
+@media(max-width:1000px){.musicLayout{grid-template-columns:1fr}.musicPlayerWrap{position:relative;top:auto}.musicList{max-height:520px}}
+@media(max-width:700px){.headerLogo{width:130px;height:38px}.musicTools{grid-template-columns:1fr}.musicItem{align-items:flex-start}.musicActions{flex-direction:column;gap:5px}.musicActions button{width:100%}}

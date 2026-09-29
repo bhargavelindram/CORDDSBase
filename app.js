@@ -50,19 +50,49 @@ async function refreshStorage(){const list=$("storageList");const rows=await lis
 function unlockAlertAudio(){try{if(!S.audioCtx)S.audioCtx=new (window.AudioContext||window.webkitAudioContext)();if(S.audioCtx.state==="suspended")S.audioCtx.resume()}catch(e){console.warn("audio",e)}}
 function startAttentionAudio(){if(S.role!=="operator"||!S.soundOn)return;unlockAlertAudio();if(S.audioBeatTimer)return;let step=0;const notes=[196,220,261.63,293.66,329.63,293.66,261.63,220];S.audioBeatTimer=setInterval(()=>{try{const ctx=S.audioCtx;if(!ctx||ctx.state==="suspended")return;const now=ctx.currentTime;const o=ctx.createOscillator(),g=ctx.createGain();o.type="triangle";o.frequency.value=notes[step++%notes.length];g.gain.setValueAtTime(.0001,now);g.gain.exponentialRampToValueAtTime(.035,now+.02);g.gain.exponentialRampToValueAtTime(.0001,now+.18);o.connect(g);g.connect(ctx.destination);o.start(now);o.stop(now+.20)}catch(e){}},260)}
 function stopAttentionAudio(){if(S.audioBeatTimer){clearInterval(S.audioBeatTimer);S.audioBeatTimer=null}}
+function stopIncidentPing(x){if(x?.pingTimer){clearInterval(x.pingTimer);x.pingTimer=null}if(x?.reassignTimer){clearTimeout(x.reassignTimer);x.reassignTimer=null}}
+function startIncidentPing(x){if(!x||x.status!=="ACTIVE")return;stopIncidentPing(x);playWarningAlarm();x.pingTimer=setInterval(()=>{if(x.status==="ACTIVE")playWarningAlarm();else stopIncidentPing(x)},2200);x.reassignTimer=setTimeout(()=>reassignCollision(x.id),30000)}
 function playWarningAlarm(){try{unlockAlertAudio();const ctx=S.audioCtx;if(!ctx)return;const now=ctx.currentTime;for(let i=0;i<5;i++){const o=ctx.createOscillator(),g=ctx.createGain();o.type="square";o.frequency.setValueAtTime(i%2?520:980,now+i*.34);g.gain.setValueAtTime(.0001,now+i*.34);g.gain.exponentialRampToValueAtTime(.65,now+i*.34+.025);g.gain.exponentialRampToValueAtTime(.0001,now+i*.34+.27);o.connect(g);g.connect(ctx.destination);o.start(now+i*.34);o.stop(now+i*.34+.29)}}catch(e){}try{const u=new SpeechSynthesisUtterance("WARNING. VEHICLE COLLISION DETECTED.");u.rate=.92;u.pitch=.75;u.volume=1;window.speechSynthesis?.cancel();window.speechSynthesis?.speak(u)}catch(e){}}
 
+function reassignCollision(id){
+const x=S.collisions.get(id);if(!x||x.status!=="ACTIVE"||!S.room)return;
+const peers=[...S.room.remoteParticipants.values()].filter(p=>p.identity!==S.room.localParticipant?.identity);
+if(!peers.length){x.reassignWaiting=true;return}
+const target=peers[0];
+x.status="REASSIGNED";stopIncidentPing(x);renderCollisionControl();
+const msg={type:"collision:reassign",id:x.id,camera:x.camera,cameraId:x.cameraId,score:x.score,time:x.time};
+try{S.room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify(msg)),{reliable:true,destinationIdentities:[target.identity]})}catch(e){console.warn("collision reassignment",e)}
+}
+function handleReassignedCollision(msg){
+if(!msg?.id)return;
+const x={id:msg.id,camera:msg.camera||"Camera",cameraId:msg.cameraId||"",score:Number(msg.score)||0,time:Number(msg.time)||Date.now(),lastSeen:Date.now(),status:"ACTIVE",replay:null,reassigned:true};
+S.collisions.set(x.id,x);renderCollisionControl();playWarningAlarm();startIncidentPing(x);
+}
 function addAlert(camera,label,score){const key=camera+"|"+label;const now=Date.now();const last=S.alertCooldown.get(key)||0;if(now-last<10000)return;S.alertCooldown.set(key,now);const a={camera,label,score,time:now};S.alerts.unshift(a);S.alerts=S.alerts.slice(0,200);updateCounts();renderAlerts()}
 async function reportCollision(c,pairKey,score){
 const id=c.id+"|"+pairKey,now=Date.now(),existing=S.collisions.get(id);
 if(existing&&now-existing.lastSeen<5000){existing.lastSeen=now;existing.score=Math.max(existing.score,score);return}
 const incident={id,camera:c.name||"Camera",cameraId:c.id,score,time:now,lastSeen:now,status:"ACTIVE",replay:null};
-S.collisions.set(id,incident);addAlert(c.name||"Camera","VEHICLE COLLISION",score);renderCollisionControl();playWarningAlarm();showEmergencyBanner(incident);
+S.collisions.set(id,incident);addAlert(c.name||"Camera","VEHICLE COLLISION",score);renderCollisionControl();startIncidentPing(incident);showEmergencyBanner(incident);
 makeReplay(c,now).then(r=>{if(r){incident.replay=r;renderAlerts()}})}
 
+async function loadIncidentHospitals(id){
+const x=S.collisions.get(id),c=S.cameras.get(x?.cameraId);if(!x||!c)return;
+const sel=$("hospitalSelect"),list=$("hospitalList"),hint=$("hospitalResponseHint");if(!sel||!list)return;
+sel.innerHTML='<option value="">SELECT NEARBY HOSPITAL</option>';list.innerHTML="";hint.textContent=Number.isFinite(c.lat)&&Number.isFinite(c.lon)?"Loading nearby hospitals…":"Camera GPS is unavailable; hospital list cannot be location-ranked.";
+if(!Number.isFinite(c.lat)||!Number.isFinite(c.lon))return;
+try{
+const q='[out:json][timeout:25];(node["amenity"="hospital"](around:30000,'+c.lat+','+c.lon+');way["amenity"="hospital"](around:30000,'+c.lat+','+c.lon+');relation["amenity"="hospital"](around:30000,'+c.lat+','+c.lon+'););out center tags;';
+const res=await fetch("https://overpass-api.de/api/interpreter?data="+encodeURIComponent(q));if(!res.ok)throw Error("Hospital search "+res.status);
+const d=await res.json();const hospitals=(d.elements||[]).map(h=>({name:h.tags?.name||"Hospital",lat:h.lat??h.center?.lat,lon:h.lon??h.center?.lon,address:h.tags?.["addr:full"]||[h.tags?.["addr:street"],h.tags?.["addr:city"]].filter(Boolean).join(", ")})).filter(h=>Number.isFinite(h.lat)&&Number.isFinite(h.lon)).sort((a,b)=>a.name.localeCompare(b.name)).slice(0,150);
+for(const h of hospitals){const o=document.createElement("option");o.value=JSON.stringify(h);o.textContent=h.name+(h.address?" · "+h.address:"");sel.appendChild(o)}
+hint.textContent=hospitals.length+" nearby hospital locations found. Acceptance status is operator-recorded unless an external hospital system is integrated.";
+}catch(e){hint.textContent="Nearby hospital data is unavailable right now.";console.warn(e)}
+}
+function showIncidentResponse(id){const p=$("incidentAckPanel");if(!p)return;p.hidden=false;p.dataset.incident=id;loadIncidentHospitals(id)}
 function acknowledgeCollision(id){
 const x=S.collisions.get(id);if(!x)return;
-x.status="ACKNOWLEDGED";renderCollisionControl();
+x.status="ACKNOWLEDGED";stopIncidentPing(x);renderCollisionControl();showIncidentResponse(id);
 }
 function ignoreCollision(id){
 const x=S.collisions.get(id);if(!x)return;
@@ -167,7 +197,7 @@ $("cameraMsg").textContent="Camera removed by operator.";
 setStatus("REMOVED");
 return;
 }
-if(role==="operator")handleCameraData(msg,participant)
+if(role==="operator"){if(msg.type==="collision:reassign")handleReassignedCollision(msg);else handleCameraData(msg,participant)}
 });S.room.on(L.RoomEvent.ParticipantDisconnected,participant=>{if(role==="operator")removeCamera(participant.identity)});S.room.on(L.RoomEvent.Disconnected,()=>{setStatus("OFFLINE");$("roomState").textContent="DISCONNECTED"});const r=await source.fetch({roomName,participantIdentity:identity(role),participantName:role==="operator"?"Operator":"Camera"});if(!r?.serverUrl||!r?.participantToken)throw Error("LiveKit returned incomplete connection details.");await S.room.connect(r.serverUrl,r.participantToken);$("roomState").textContent=roomName+" · CONNECTED";setStatus(role==="operator"?"OPERATOR ONLINE":"CAMERA ONLINE");if(role==="camera")startGps()}
 async function connectGlobalRegistry(role){
 if(S.registryRoom){try{await S.registryRoom.disconnect()}catch(e){}}
@@ -240,9 +270,13 @@ async function searchMapPlace(){const q=($("mapSearch")?.value||"").trim();if(!q
 $("mapSearchBtn")?.addEventListener("click",searchMapPlace);
 $("mapSearch")?.addEventListener("keydown",e=>{if(e.key==="Enter")searchMapPlace()});
 $("closeReplay").onclick=closeReplay;$("replayModal").addEventListener("click",e=>{if(e.target.id==="replayModal")closeReplay()});
+$("hospitalAcceptance")?.addEventListener("change",e=>{const p=$("incidentAckPanel"),id=p?.dataset.incident,x=id&&S.collisions.get(id);if(x)x.hospitalStatus=e.target.value});
+$("hospitalSelect")?.addEventListener("change",e=>{const p=$("incidentAckPanel"),id=p?.dataset.incident,x=id&&S.collisions.get(id);if(!x||!e.target.value)return;try{x.hospital=JSON.parse(e.target.value);x.hospitalStatus="PENDING";$("hospitalAcceptance").value="PENDING"}catch(err){}});
+$("callFireServices")?.addEventListener("click",()=>{window.location.href="tel:101"});
 $("soundToggle").onclick=()=>{S.soundOn=!S.soundOn;$("soundToggle").textContent=S.soundOn?"ATTENTION AUDIO: ON":"ATTENTION AUDIO: OFF";if(S.soundOn)startAttentionAudio();else stopAttentionAudio()};
 $("emergencyReplay").onclick=()=>{const x=[...S.collisions.values()].find(x=>x.time===Number($("emergencyBanner").dataset.time));if(x)openAlertReplay({camera:x.camera,score:x.score,time:x.time})};
 
 ["legalDate","legalFrom","legalTo","legalPlace"].forEach(id=>$(id)?.addEventListener("input",refreshLegalStorage));$("legalClearFilters")?.addEventListener("click",()=>{["legalDate","legalFrom","legalTo","legalPlace"].forEach(id=>$(id).value="");refreshLegalStorage()});
+$("cameraLogout")?.addEventListener("click",()=>location.reload());
 $("leave").onclick=async()=>{try{S.collisions.clear();S.removedCameras.clear();stopAI();stopAttentionAudio();if(S.watchId!=null)navigator.geolocation.clearWatch(S.watchId);for(const c of S.cameras.values()){if(c.recordTimer)clearTimeout(c.recordTimer);if(c.recorder?.state==="recording")c.recorder.stop()}if(S.room)await S.room.disconnect()}catch(e){}location.reload()};
 })();

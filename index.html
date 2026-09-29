@@ -52,10 +52,12 @@
 <div id="remoteArea" class="cameraGrid"></div>
 </div>
 
-<div id="cameraPanel" class="panel" hidden>
-<div class="row"><input id="cameraRoom" placeholder="Enter the operator room ID"><button id="startCamera">ENABLE CAMERA</button></div>
-<video id="localVideo" autoplay muted playsinline></video>
-<p id="cameraMsg">Camera is off.</p>
+<div id="cameraPanel" class="cameraOnlyPanel" hidden>
+<div class="cameraRoomBar"><span class="cameraBrand">CORDDSBASE CAMERA</span><input id="cameraRoom" placeholder="ROOM CODE"><button id="startCamera">JOIN ROOM & ENABLE CAMERA</button><span id="cameraMsg">NOT CONNECTED</span></div>
+<div class="cameraSplit">
+<div class="cameraFeed"><video id="localVideo" autoplay muted playsinline></video><div class="cameraFeedBadge">LIVE CAMERA</div></div>
+<div class="cameraLocation"><div class="cameraLocationHead"><b>CAMERA LOCATION</b><span id="cameraGpsStatus">WAITING FOR GPS</span></div><div id="cameraMap"></div></div>
+</div>
 </div>
 </section>
 

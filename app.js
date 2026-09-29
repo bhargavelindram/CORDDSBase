@@ -35,12 +35,30 @@ list.innerHTML=TELLAPUR_HOSPITALS.map(h=>'<div class="hospitalRow"><div class="h
 }
 
 function showApp(role){$("gate").hidden=true;$("app").hidden=false;S.role=role;$("operatorPanel").hidden=role!=="operator";$("cameraPanel").hidden=role!=="camera";$("operatorNav").hidden=role!=="operator";$("legalNav").hidden=role!=="legal";$("content").classList.toggle("cameraOnlyMode",role==="camera");$("title").textContent=role==="operator"?"Cameras":role==="legal"?"Video Storage":"";setStatus(role.toUpperCase());if(role==="camera"){showView("cameras");initCameraMap()}if(role==="legal"){showView("legal-storage");initGlobalMap();connectGlobalRegistry("legal").catch(e=>console.warn("legal registry",e));refreshLegalStorage()}}
-async function loadMusicLibrary(){
+async const FEATURED_BANGERS=[
+["Chammak Challo","Akon, Hamsika Iyer"],["Habibi","Indian/Desi Banger"],["Kala Chashma","Amar Arshi, Badshah, Neha Kakkar"],["Kar Gayi Chull","Badshah, Fazilpuria, Neha Kakkar, Sukriti Kakar"],["Abhi Toh Party Shuru Hui Hai","Yo Yo Honey Singh"],["High Heels Te Nachche","Jaz Dhami, Yo Yo Honey Singh, Aastha Gill"],["Brown Munde","AP Dhillon, Gminxr, Gurinder Gill"],["Insane","AP Dhillon"],["Excuses","AP Dhillon"],["Naah","Harrdy Sandhu"],["Lahore","Guru Randhawa"],["Proper Patola","Diljit Dosanjh, Badshah"],["Born to Shine","Diljit Dosanjh"],["Do You Know","Diljit Dosanjh"],["5 Taara","Diljit Dosanjh"],["Mundian To Bach Ke","Panjabi MC"],["Amplifier","Imran Khan"],["Angreji Beat","Gippy Grewal, Honey Singh"],["Desi Kalakaar","Yo Yo Honey Singh"],["Blue Eyes","Yo Yo Honey Singh"],["Party All Night","Yo Yo Honey Singh"],["Manali Trance","Neha Kakkar, Yo Yo Honey Singh"],["Sunny Sunny","Yo Yo Honey Singh, Neha Kakkar"],["Aankh Marey","Neha Kakkar, Mika Singh, Kumar Sanu"],["The Humma Song","Badshah, Jubin Nautiyal, Shashaa Tirupati"],["Tamma Tamma Again","Bappi Lahiri, Anuradha Paudwal, Badshah"],["Bom Diggy Diggy","Zack Knight, Jasmin Walia"],["Gallan Goodiyaan","Yashita Sharma, Manish Kumar Tipu, Farhan Akhtar"],["Jai Jai Shivshankar","Vishal Dadlani, Benny Dayal"],["Ghungroo","Arijit Singh, Shilpa Rao"],["Jhoome Jo Pathaan","Arijit Singh, Sukriti Kakar, Vishal Dadlani, Shekhar Ravjiani"],["Besharam Rang","Shilpa Rao, Caralisa Monteiro, Vishal Dadlani, Shekhar Ravjiani"],["What Jhumka?","Arijit Singh, Jonita Gandhi"],["Thumkeshwari","Rashmeet Kaur, Dev Negi, Sachin-Jigar"],["Param Sundari","Shreya Ghoshal"],["Kamariya","Darshan Raval"],["O Saki Saki","Neha Kakkar, Tulsi Kumar, B Praak"],["Muqabla","Yash Narvekar, Parampara Tandon"],["Illegal Weapon 2.0","Jasmine Sandlas, Garry Sandhu"],["Naagin","Aastha Gill"],["Jugnu","Badshah, Nikhita Gandhi"],["Nadiyon Paar","Shamur, Rashmeet Kaur, IP Singh, Sachin-Jigar"]
+];
+function addFeaturedBangers(){
+const base=Array.isArray(S.music)?S.music:[], existing=new Set(base.map(x=>(x.title||"").toLowerCase()));
+let next=base.reduce((m,x)=>Math.max(m,Number(x.id)||0),0)+1;
+for(const [title,artist] of FEATURED_BANGERS){
+if(existing.has(title.toLowerCase()))continue;
+base.unshift({id:next++,title,artist,rating:5,energy:2,playUrl:"https://www.youtube.com/results?search_query="+encodeURIComponent(title+" "+artist)});
+existing.add(title.toLowerCase());
+}
+S.music=base;
+}
+function searchYouTubeMusic(){
+const q=($("musicSearch")?.value||"").trim();
+if(!q)return;
+window.open("https://www.youtube.com/results?search_query="+encodeURIComponent(q),"cordds-youtube-search","noopener,noreferrer");
+}
+function loadMusicLibrary(){
 if(S.musicLoaded)return;
 const list=$("musicList"),count=$("musicLibraryCount");
 try{
 const r=await fetch("music.json?v=20260929",{cache:"no-store"});if(!r.ok)throw Error("Music library "+r.status);
-const d=await r.json();S.music=d.tracks||[];S.musicLoaded=true;
+const d=await r.json();S.music=d.tracks||[];addFeaturedBangers();S.musicLoaded=true;
 if(count)count.textContent=(S.music.length||0)+" TRACKS";
 renderMusic();
 }catch(e){if(list)list.innerHTML='<div class="list empty">Music library could not be loaded.</div>';if(count)count.textContent="OFFLINE";console.warn("music",e)}
@@ -55,10 +73,11 @@ const rows=S.music.filter(x=>(!q||((x.title+" "+x.artist).toLowerCase().includes
 el.innerHTML=rows.slice(0,120).map(x=>'<div class="musicItem"><div><b>'+escapeHtml(x.title)+'</b><span>'+escapeHtml(x.artist||"Unknown artist")+'</span></div><div class="musicActions"><small>'+("★ "+Number(x.rating||0).toFixed(2))+'</small><button data-play-music="'+x.id+'">PLAY</button></div></div>').join("")||'<div class="list empty">No songs match this filter.</div>';
 el.querySelectorAll("[data-play-music]").forEach(b=>b.onclick=()=>playMusic(Number(b.dataset.playMusic)));
 }
+document.addEventListener("DOMContentLoaded",()=>{const b=$("musicYoutubeSearch"),q=$("musicSearch");if(b)b.onclick=searchYouTubeMusic;if(q)q.addEventListener("keydown",e=>{if(e.key==="Enter")searchYouTubeMusic()});});
 function playMusic(id){
 const x=S.music.find(t=>t.id===id);if(!x)return;
 const src=youtubeEmbed(x.playUrl),frame=$("musicPlayer"),now=$("musicNow");
-if(!src||!frame)return;
+if(!src){window.open(x.playUrl||("https://www.youtube.com/results?search_query="+encodeURIComponent(x.title+" "+(x.artist||""))),"cordds-youtube","noopener,noreferrer");if(now)now.textContent=x.title+" · opening YouTube search";return;}
 frame.src=src;if(now)now.textContent=x.title+" · "+x.artist;
 }
 function showView(view){document.querySelectorAll(".view").forEach(v=>v.hidden=v.id!=="view-"+view);document.querySelectorAll(".nav").forEach(b=>b.classList.toggle("active",b.dataset.view===view));const names={cameras:"Cameras",map:"Live Map",alerts:"Alerts",storage:"Video Storage",ai:"YOLO11 Detection",music:"Music",settings:"Settings","legal-storage":"Video Storage","global-map":"Global Camera Map"};$("title").textContent=names[view];if(view==="map"&&S.map){setTimeout(()=>{S.map.invalidateSize();loadHospitals()},50)}if(view==="global-map"&&S.globalMap)setTimeout(()=>S.globalMap.invalidateSize(),50);if(view==="music")loadMusicLibrary();if(view==="legal-storage")refreshLegalStorage();if(view==="storage")refreshStorage()}

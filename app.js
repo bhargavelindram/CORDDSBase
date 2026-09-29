@@ -454,9 +454,14 @@ renderCollisionControl();
 });
 $("callFireServices")?.addEventListener("click",()=>{window.location.href="tel:101"});
 $("musicEnergy")?.addEventListener("change",renderMusic);loadMusicLibrary();
+$("musicSearchBtn")?.addEventListener("click",searchYouTubeMusic);
+$("musicSearch")?.addEventListener("keydown",e=>{if(e.key==="Enter")searchYouTubeMusic()});
 $("musicPlayPause")?.addEventListener("click",toggleMusicPlay);
 $("musicNext")?.addEventListener("click",nextMusic);
 $("musicPrev")?.addEventListener("click",previousMusic);
+$("musicMainPlayPause")?.addEventListener("click",toggleMusicPlay);
+$("musicMainNext")?.addEventListener("click",nextMusic);
+$("musicMainPrev")?.addEventListener("click",previousMusic);
 
 $("soundToggle").onclick=()=>{S.soundOn=!S.soundOn;$("soundToggle").textContent=S.soundOn?"ATTENTION AUDIO: ON":"ATTENTION AUDIO: OFF";if(S.soundOn)startAttentionAudio();else stopAttentionAudio()};
 $("emergencyReplay").onclick=()=>{const x=[...S.collisions.values()].find(x=>x.time===Number($("emergencyBanner").dataset.time));if(x)openAlertReplay({camera:x.camera,score:x.score,time:x.time})};
